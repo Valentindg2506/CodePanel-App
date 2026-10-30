@@ -1,0 +1,80 @@
+name: Repository guard
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  private-file-guard:
+    name: Reject private files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check tracked paths
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          violations=()
+
+          while IFS= read -r -d '' file; do
+            basename="${file##*/}"
+
+            case "$basename" in
+              .env.example|.env.php.example)
+                ;;
+              .env|.env.*|codepanel.sql|*.log|*.cookie|*.tar|*.tar.gz|*.tgz|*.zip|*.7z|*.rar|*.dump|*.bak|*.backup|*.old|*.sqlite|*.sqlite3|*.db|*.pem|*.key|*.p12|*.pfx|*.kdbx|credentials.json|secrets.json|auth.json|cookies.txt|composer-auth.json|.htpasswd|id_rsa*|id_ed25519*)
+                violations+=("$file")
+                continue
+                ;;
+            esac
+
+            case "$file" in
+              backups/*|*/backups/*|dumps/*|*/dumps/*)
+                violations+=("$file")
+                continue
+                ;;
+            esac
+
+            case "$basename" in
+              *.sql|*.sql.gz|*.sql.bz2|*.sql.xz|*.sql.zip)
+                if [[ "$file" != "database/schema.sql" && ! "$file" =~ ^database/migrations/[^/]+\.sql$ ]]; then
+                  violations+=("$file")
+                fi
+                ;;
+            esac
+
+            case "$file" in
+              storage/uploads/*)
+                case "$file" in
+                  storage/uploads/.gitkeep|storage/uploads/.htaccess|storage/uploads/index.php) ;;
+                  *) violations+=("$file") ;;
+                esac
+                ;;
+            esac
+          done < <(git ls-files -z)
+
+          while IFS= read -r -d '' file; do
+            [[ -n "$file" ]] && violations+=("$file (contains private key material)")
+          done < <(git grep --cached -IlzE -e '-----BEGIN ([A-Z0-9]+ )?PRIVATE KEY-----' -- . || true)
+
+          while IFS= read -r -d '' file; do
+            [[ -n "$file" ]] && violations+=("$file (contains token-like secret)")
+          done < <(git grep --cached -IlzE -e '(github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|glpat-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|xox[baprs]-[0-9A-Za-z-]{10,}|[sr]k_live_[0-9A-Za-z]{16,}|sk-proj-[A-Za-z0-9_-]{20,})' -- . || true)
+
+          if ((${#violations[@]} > 0)); then
+            echo "Private or forbidden files are tracked:" >&2
+            printf ' - %s\n' "${violations[@]}" >&2
+            exit 1
+          fi
+
+          echo "Repository guard passed."

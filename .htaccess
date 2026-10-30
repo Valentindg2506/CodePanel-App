@@ -1,0 +1,32 @@
+# Protege secretos cuando Apache permite aplicar reglas desde .htaccess.
+<FilesMatch "^\.env($|\.)">
+    Require all denied
+</FilesMatch>
+
+# Bloquea metadatos de control de versiones cuando el DocumentRoot incluye por
+# error una copia de trabajo completa.
+<FilesMatch "(?i)^\.(git|svn|hg)">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule "(^|/)\.(git|svn|hg)(/|$)" - [R=404,L,NC]
+</IfModule>
+
+# Los volcados y copias locales pueden contener datos personales, hashes y
+# estructura interna. Nunca deben servirse desde el DocumentRoot.
+<FilesMatch "(?i)\.(sql|sqlite|sqlite3|db|dump|bak|backup|old)(\.(gz|bz2|xz|zip))?$">
+    Require all denied
+</FilesMatch>
+
+Options -Indexes
+
+# Límites coherentes con los adjuntos privados (10 MiB) y los reportes públicos
+# con varias capturas (12 MiB en total). En PHP-FPM estos valores deben
+# replicarse en php.ini o .user.ini del hosting.
+<IfModule mod_php.c>
+    php_value upload_max_filesize 10M
+    php_value post_max_size 16M
+    php_value max_file_uploads 12
+</IfModule>

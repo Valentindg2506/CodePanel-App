@@ -1,0 +1,14 @@
+# Propietario por defecto. La revisión se vuelve obligatoria al activar en
+# GitHub una ruleset o protección de rama que requiera aprobación de CODEOWNERS.
+* @Valentindg2506
+
+# Se declaran de forma explícita los archivos que controlan propiedad y seguridad.
+/.github/ @Valentindg2506
+/LICENSE @Valentindg2506
+/SECURITY.md @Valentindg2506
+/.gitignore @Valentindg2506
+/.gitattributes @Valentindg2506
+/.htaccess @Valentindg2506
+/app/ @Valentindg2506
+/api/ @Valentindg2506
+/database/ @Valentindg2506

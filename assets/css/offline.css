@@ -1,0 +1,91 @@
+/* Página sin conexión de la app instalada. Misma marca que la app (valentindg). */
+@font-face {
+    font-family: "Instrument Sans";
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url("../fonts/instrument-sans.woff2") format("woff2");
+}
+
+:root {
+    color-scheme: light dark;
+    --bg: #f7f6f8;
+    --surface: #ffffff;
+    --ink: #1d1c22;
+    --muted: #6e6b76;
+    --line-soft: #f0eef1;
+    --accent: #ed533e;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #121116;
+        --surface: #1b1a20;
+        --ink: #f4f2f6;
+        --muted: #a7a2ae;
+        --line-soft: #2c2a32;
+        --accent: #f65d49;
+    }
+}
+
+* { box-sizing: border-box; }
+
+body {
+    display: grid;
+    min-height: 100vh;
+    min-height: 100svh;
+    margin: 0;
+    padding: max(22px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(22px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+    place-items: center;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+}
+
+.offline-card {
+    width: min(100%, 445px);
+    padding: 34px;
+    border: 1px solid var(--line-soft);
+    border-radius: 18px;
+    background: var(--surface);
+    box-shadow: 0 10px 35px rgba(41, 30, 50, .025);
+}
+
+.brand { display: flex; align-items: center; gap: 10px; margin-bottom: 34px; }
+.brand-mark { width: auto; height: 26px; fill: currentColor; }
+.brand span { display: grid; line-height: 1.2; }
+.brand strong { font-size: 13px; font-weight: 600; }
+.brand small { color: var(--muted); font-size: 11px; }
+
+.eyebrow { display: block; margin-bottom: 6px; color: var(--muted); font-size: 11px; font-weight: 600; }
+
+h1 { margin: 0 0 8px; font-size: 31px; font-weight: 600; line-height: 1.25; letter-spacing: -.4px; }
+
+p { margin: 0 0 22px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+a {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 15px;
+    border-radius: 11px;
+    background: var(--ink);
+    color: var(--surface);
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+}
+a:hover { opacity: .86; }
+a:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 3px; }
+
+.privacy-note {
+    display: block;
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line-soft);
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.5;
+}

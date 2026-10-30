@@ -1,0 +1,74 @@
+LICENCIA PROPIETARIA DE CODEPANEL
+Versión 1.0 — 2026
+
+Copyright © 2026 Valentin (@Valentindg2506). Todos los derechos reservados.
+
+1. Titularidad
+
+CodePanel, incluyendo su código fuente, diseño visual, estructura de datos,
+documentación, textos y recursos originales, es propiedad de su titular y está
+protegido por las normas aplicables de propiedad intelectual.
+
+La disponibilidad o entrega del código fuente no implica que el proyecto sea
+software libre o de código abierto y no concede ninguna licencia implícita.
+
+2. Derechos no concedidos
+
+Sin una autorización previa, expresa y escrita del titular, queda prohibido:
+
+- copiar o reproducir total o parcialmente el proyecto;
+- modificarlo, adaptarlo, traducirlo o crear obras derivadas;
+- publicarlo, redistribuirlo, sublicenciarlo, alquilarlo o venderlo;
+- utilizar su código, diseño o estructura dentro de otro producto o servicio;
+- ofrecerlo como servicio alojado, producto comercial o solución para terceros;
+- retirar o alterar avisos de autoría, propiedad o licencia;
+- facilitar el acceso a personas no autorizadas.
+
+3. Acceso autorizado
+
+El titular puede conceder permisos limitados para estudio, evaluación,
+colaboración o uso interno. Esos permisos serán personales, revocables,
+intransferibles y estarán limitados al alcance y al plazo comunicados por
+escrito.
+
+Recibir acceso al repositorio, ser colaborador, poder clonarlo técnicamente o
+enviar una contribución no concede por sí mismo derecho a reutilizar,
+redistribuir o explotar CodePanel fuera de la autorización recibida.
+
+Esta licencia establece restricciones jurídicas; no constituye ni promete una
+barrera técnica contra la descarga o copia de un repositorio que sea visible.
+
+4. Contribuciones
+
+No se aceptan contribuciones que incorporen código, diseños, datos o materiales
+sin autorización de sus titulares. Antes de integrar una contribución de otra
+persona debe existir un acuerdo escrito que defina su autoría y los derechos
+concedidos a CodePanel. En ausencia de ese acuerdo, la contribución no será
+incorporada al proyecto.
+
+5. Confidencialidad y seguridad
+
+Las credenciales, bases de datos, archivos de usuarios, configuraciones privadas
+y vulnerabilidades conocidas deben tratarse como información confidencial. No
+pueden copiarse, publicarse ni utilizarse fuera del propósito autorizado.
+
+Los problemas de seguridad deben comunicarse mediante el procedimiento definido
+en SECURITY.md.
+
+6. Terminación
+
+Cualquier autorización termina automáticamente si se incumplen estas
+condiciones. Al finalizar el permiso, la persona autorizada debe dejar de usar
+el proyecto y eliminar las copias que conserve, salvo que una obligación legal
+exija lo contrario.
+
+7. Ausencia de garantía
+
+CodePanel se proporciona "tal cual", sin garantías expresas o implícitas. En la
+máxima medida permitida por la ley, el titular no será responsable por daños,
+pérdidas de datos, interrupciones o consecuencias derivadas de su uso.
+
+8. Reserva de derechos
+
+Todo derecho no concedido expresamente en esta licencia queda reservado por el
+titular. Cualquier excepción requiere autorización escrita.

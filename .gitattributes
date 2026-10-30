@@ -1,0 +1,55 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.zip binary
+*.pdf binary
+
+# Segunda barrera para que los archivos privados no formen parte de archivos
+# generados mediante `git archive`, incluso si alguien los añadió por error.
+/.env* export-ignore
+**/.env* export-ignore
+/codepanel.sql export-ignore
+*.log export-ignore
+*.cookie export-ignore
+*.tar export-ignore
+*.tar.gz export-ignore
+*.tgz export-ignore
+*.zip export-ignore
+*.7z export-ignore
+*.rar export-ignore
+*.dump export-ignore
+*.bak export-ignore
+*.backup export-ignore
+*.old export-ignore
+*.sqlite export-ignore
+*.sqlite3 export-ignore
+*.db export-ignore
+*.pem export-ignore
+*.key export-ignore
+*.p12 export-ignore
+*.pfx export-ignore
+*.kdbx export-ignore
+id_rsa* export-ignore
+id_ed25519* export-ignore
+credentials.json export-ignore
+secrets.json export-ignore
+auth.json export-ignore
+cookies.txt export-ignore
+composer-auth.json export-ignore
+.htpasswd export-ignore
+/backups export-ignore
+/backups/** export-ignore
+**/backups export-ignore
+**/backups/** export-ignore
+/dumps export-ignore
+/dumps/** export-ignore
+**/dumps export-ignore
+**/dumps/** export-ignore
+/storage/uploads export-ignore
+/storage/uploads/** export-ignore
+/tests export-ignore
