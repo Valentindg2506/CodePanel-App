@@ -235,6 +235,8 @@ CREATE TABLE tasks (
     assignee VARCHAR(140) NULL,
     due_date DATE NULL,
     completed_at DATETIME NULL,
+    estimated_minutes INT UNSIGNED NULL,
+    checklist JSON NULL,
     tags JSON NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -481,6 +483,7 @@ CREATE TABLE resources (
     currency CHAR(3) NOT NULL DEFAULT 'ARS',
     billing_cycle VARCHAR(20) NOT NULL DEFAULT 'none',
     notes TEXT NULL,
+    credential_ref VARCHAR(200) NULL,
     tags JSON NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -496,4 +499,39 @@ CREATE TABLE resources (
     CONSTRAINT chk_resources_cost CHECK (cost >= 0),
     CONSTRAINT chk_resources_currency CHECK (currency IN ('ARS', 'USD', 'EUR')),
     CONSTRAINT chk_resources_billing CHECK (billing_cycle IN ('none', 'monthly', 'yearly', 'one_time'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE snippets (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
+    project_id BIGINT UNSIGNED NULL,
+    title VARCHAR(160) NOT NULL,
+    language VARCHAR(40) NULL,
+    content TEXT NOT NULL,
+    tags JSON NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_snippets_user_updated (user_id, updated_at),
+    KEY idx_snippets_project (project_id),
+    CONSTRAINT fk_snippets_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_snippets_project FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE api_tokens (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
+    name VARCHAR(80) NOT NULL,
+    token_prefix VARCHAR(16) NOT NULL,
+    token_hash CHAR(64) NOT NULL,
+    scope VARCHAR(10) NOT NULL DEFAULT 'read',
+    last_used_at DATETIME NULL,
+    expires_at DATETIME NULL,
+    revoked_at DATETIME NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_api_tokens_hash (token_hash),
+    KEY idx_api_tokens_user (user_id, revoked_at),
+    CONSTRAINT fk_api_tokens_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT chk_api_tokens_scope CHECK (scope IN ('read', 'write'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

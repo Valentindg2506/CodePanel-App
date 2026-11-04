@@ -79,6 +79,15 @@ final class Kernel
         $user = $this->auth->requireUser();
         $userId = (int) $user['id'];
 
+        // Los tokens de API sirven para los datos de trabajo, no para la cuenta ni para compartir o subir archivos.
+        if ($this->auth->viaToken() && in_array($resource, ['settings', 'attachments', 'project-shares', 'api-tokens'], true)) {
+            throw new ApiException('Esta acción solo está disponible desde la aplicación, con tu sesión.', 403);
+        }
+
+        if ($resource === 'api-tokens') {
+            $this->handleApiTokens($method, $segments, $userId);
+        }
+
         if ($resource === 'dashboard') {
             $this->only($method, ['GET']);
             Http::success(
@@ -163,6 +172,9 @@ final class Kernel
         }
 
         EntityCatalog::get($resource);
+        if ($resource === 'snippets' && $this->pdo !== null && !Schema::hasTable($this->pdo, 'snippets')) {
+            throw new ApiException('Los fragmentos estarán disponibles cuando se aplique la última migración de la base de datos.', 503);
+        }
         $id = $this->resourceId($segments[1] ?? ($_GET['id'] ?? null));
 
         if ($method === 'GET') {
@@ -259,6 +271,7 @@ final class Kernel
                 'demo_mode' => $this->demoMode,
                 'database_available' => $this->store !== null,
                 'registration_enabled' => $this->auth->registrationEnabled(),
+                'features' => $this->features(),
             ], $user !== null ? 'Sesión activa.' : 'No hay una sesión activa.', 200, $this->meta());
         }
 
@@ -270,13 +283,13 @@ final class Kernel
         if ($action === 'login') {
             $this->only($method, ['POST']);
             $this->auth->assertCsrf();
-            Http::success($this->auth->login(Http::body()), 'Bienvenido de nuevo.', 200, $this->meta());
+            Http::success(array_merge($this->auth->login(Http::body()), ['features' => $this->features()]), 'Sesión iniciada.', 200, $this->meta());
         }
 
         if ($action === 'register') {
             $this->only($method, ['POST']);
             $this->auth->assertCsrf();
-            Http::success($this->auth->register(Http::body()), 'Tu cuenta está lista.', 201, $this->meta());
+            Http::success(array_merge($this->auth->register(Http::body()), ['features' => $this->features()]), 'Tu cuenta está lista.', 201, $this->meta());
         }
 
         if ($action === 'logout') {
@@ -289,6 +302,47 @@ final class Kernel
         }
 
         throw new ApiException('Acción de autenticación no encontrada.', 404);
+    }
+
+    /** Funciones que dependen de migraciones: el navegador solo las muestra cuando están listas. */
+    private function features(): array
+    {
+        if ($this->demoMode) {
+            return ['task_checklists' => true, 'snippets' => true, 'credential_refs' => true, 'api_tokens' => false];
+        }
+        $pdo = $this->pdo;
+        return [
+            'task_checklists' => Schema::hasColumn($pdo, 'tasks', 'checklist') && Schema::hasColumn($pdo, 'tasks', 'estimated_minutes'),
+            'snippets' => Schema::hasTable($pdo, 'snippets'),
+            'credential_refs' => Schema::hasColumn($pdo, 'resources', 'credential_ref'),
+            'api_tokens' => Schema::hasTable($pdo, 'api_tokens'),
+        ];
+    }
+
+    /** @param array<int, string> $segments */
+    private function handleApiTokens(string $method, array $segments, int $userId): never
+    {
+        if ($this->pdo === null) {
+            throw new ApiException('Los tokens de API no funcionan en el modo de muestra.', 503);
+        }
+        $tokens = new ApiTokens($this->pdo);
+        if ($method === 'GET') {
+            Http::success($tokens->list($userId), 'Tokens actualizados.', 200, $this->meta());
+        }
+        if ($method === 'POST') {
+            $this->auth->assertCsrf();
+            $created = $tokens->create($userId, Http::body());
+            Http::success($created, 'Token creado. Cópialo ahora: no se volverá a mostrar.', 201, $this->meta());
+        }
+        if ($method === 'DELETE') {
+            $this->auth->assertCsrf();
+            $id = $this->resourceId($segments[1] ?? null);
+            if ($id === null || !$tokens->revoke($userId, $id)) {
+                throw new ApiException('No encontramos ese token.', 404);
+            }
+            Http::success(null, 'Token revocado.', 200, $this->meta());
+        }
+        $this->only($method, ['GET', 'POST', 'DELETE']);
     }
 
     private function handleSettings(string $method, int $userId): never

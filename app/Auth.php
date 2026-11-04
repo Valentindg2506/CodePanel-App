@@ -18,15 +18,52 @@ final class Auth
     private const MAX_FAILURES_PER_EMAIL = 5;
     private const MAX_FAILURES_PER_IP = 20;
 
+    /** @var array{user_id: int, scope: string, token_id: int}|null */
+    private ?array $tokenAuth = null;
+
     public function __construct(
         private readonly ?PDO $pdo,
         private readonly bool $demoMode,
     ) {
     }
 
+    /** La petición se ha autenticado con un token personal de API en lugar de la sesión. */
+    public function viaToken(): bool
+    {
+        return $this->tokenAuth !== null;
+    }
+
+    /** @return array<string, mixed> */
+    private function tokenUser(string $token): array
+    {
+        if ($this->demoMode || $this->pdo === null) {
+            throw new ApiException('Los tokens de API no funcionan en el modo de muestra.', 401);
+        }
+        $auth = (new ApiTokens($this->pdo))->authenticate($token);
+        if ($auth === null) {
+            throw new ApiException('El token no es válido, ha caducado o se ha revocado.', 401);
+        }
+        $statement = $this->pdo->prepare(
+            'SELECT id, name, email, avatar_url, created_at FROM users WHERE id = :id LIMIT 1',
+        );
+        $statement->execute([':id' => $auth['user_id']]);
+        $user = $statement->fetch();
+        if (!is_array($user)) {
+            throw new ApiException('El token no es válido, ha caducado o se ha revocado.', 401);
+        }
+        $this->tokenAuth = $auth;
+        return $this->publicUser($user);
+    }
+
     /** @return array<string, mixed>|null */
     public function user(bool $autoDemo = true): ?array
     {
+        // Un token enviado tiene prioridad sobre la sesión y, si no es válido, no se recurre a ella.
+        $token = ApiTokens::fromRequest();
+        if ($token !== null) {
+            return $this->tokenUser($token);
+        }
+
         if ($this->demoMode) {
             if (!isset($_SESSION[self::DEMO_USER_KEY]) && $autoDemo) {
                 $_SESSION[self::DEMO_USER_KEY] = [
@@ -214,6 +251,14 @@ final class Auth
 
     public function assertCsrf(): void
     {
+        // Con token no hay cookies que falsificar: el CSRF no aplica, pero sí el alcance del token.
+        if ($this->tokenAuth !== null) {
+            if ($this->tokenAuth['scope'] !== 'write') {
+                throw new ApiException('Este token es de solo lectura.', 403);
+            }
+            return;
+        }
+
         // Demo data exists only inside this same session and has no durable impact.
         // Keeping its writes frictionless also lets the static UI work out of the box.
         if ($this->demoMode) {

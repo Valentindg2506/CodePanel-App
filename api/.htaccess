@@ -4,3 +4,9 @@
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^(.+?)/?$ index.php?route=$1 [QSA,L]
 </IfModule>
+
+# Algunos servidores (PHP-FPM o CGI) no pasan la cabecera Authorization a PHP.
+# Así llega el token de API («Authorization: Bearer cp_…»). También se acepta «X-CodePanel-Token».
+<IfModule mod_setenvif.c>
+    SetEnvIf Authorization "(.+)" HTTP_AUTHORIZATION=$1
+</IfModule>

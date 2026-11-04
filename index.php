@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 // El contenido de la aplicación se carga desde la API. PHP se usa aquí para
 // mantener una entrada compatible con cualquier hosting tradicional.
-$appVersion = '1.7.0';
+$appVersion = '1.9.0';
 
 header_remove('X-Powered-By');
 header('X-Content-Type-Options: nosniff');
@@ -58,7 +58,7 @@ header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-actio
                     <svg class="theme-sun" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
                 </button>
                 <button class="button button-primary top-create" id="quick-create" type="button" aria-haspopup="menu" aria-expanded="false">
-                    <span aria-hidden="true">＋</span><span>Crear</span>
+                    <svg aria-hidden="true" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>Crear</span>
                 </button>
                 <div class="create-menu" id="create-menu" role="menu" hidden>
                     <button type="button" role="menuitem" data-create="project"><span class="menu-swatch swatch-coral"></span>Proyecto</button>
@@ -76,6 +76,7 @@ header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-actio
                     <button type="button" role="menuitem" data-create="weekly_review"><span class="menu-swatch swatch-green"></span>Revisión semanal</button>
                     <button type="button" role="menuitem" data-upload-open><span class="menu-swatch swatch-yellow"></span>Subir archivo</button>
                     <button type="button" role="menuitem" data-create="tag"><span class="menu-swatch swatch-purple"></span>Etiqueta</button>
+                    <button type="button" role="menuitem" data-create="snippet" data-feature="snippets" hidden><span class="menu-swatch swatch-blue"></span>Fragmento de código</button>
                 </div>
                 <div class="profile-card">
                     <button class="profile-button" id="profile-button" type="button" aria-haspopup="menu" aria-expanded="false">
@@ -93,7 +94,7 @@ header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-actio
         <div class="layout">
             <aside class="rail" aria-label="Navegación principal">
                 <nav class="rail-nav" aria-label="Secciones principales">
-                    <a class="rail-link is-active" href="#dashboard" data-nav="dashboard"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm0 7h6v-3H4v3Zm10 0h6v-9h-6v9Zm0-16v3h6V4h-6Z"/></svg><span>Panorama</span></a>
+                    <a class="rail-link is-active" href="#dashboard" data-nav="dashboard"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm0 7h6v-3H4v3Zm10 0h6v-9h-6v9Zm0-16v3h6V4h-6Z"/></svg><span>Dashboard</span></a>
                     <a class="rail-link" href="#projects" data-nav="projects"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3.5 7.5h6l2-2h9v14h-17v-12Z"/><path d="M3.5 10.5h17"/></svg><span>Proyectos</span></a>
                     <a class="rail-link" href="#ideas" data-nav="ideas"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M8.4 15.5A7 7 0 1 1 15.6 15.5c-.9.7-1.1 1.3-1.1 2h-5c0-.7-.2-1.3-1.1-2Z"/></svg><span>Semillero</span></a>
                     <a class="rail-link" href="#tasks" data-nav="tasks"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="m8 9 1.5 1.5L12 8M14 10h2M8 15h8"/></svg><span>Tareas</span></a>
@@ -128,7 +129,7 @@ header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-actio
                 <p class="nav-eyebrow">Mi espacio</p>
                 <a class="nav-item is-active" href="#dashboard" data-nav="dashboard">
                     <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm0 7h6v-3H4v3Zm10 0h6v-9h-6v9Zm0-16v3h6V4h-6Z"/></svg>
-                    <span>Panorama</span>
+                    <span>Dashboard</span>
                 </a>
                 <a class="nav-item" href="#projects" data-nav="projects">
                     <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3.5 7.5h6l2-2h9v14h-17v-12Z"/><path d="M3.5 10.5h17"/></svg>
@@ -196,13 +197,17 @@ header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-actio
                     <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h10l6 6v10H4zM14 4v6h6"/><path d="M8 15h8M8 18h5"/></svg>
                     <span>Archivos</span>
                 </a>
+                <a class="nav-item" href="#snippets" data-nav="snippets" data-feature="snippets" hidden>
+                    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/></svg>
+                    <span>Fragmentos</span>
+                </a>
                 <a class="nav-item" href="#tags" data-nav="tags">
                     <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m3 12 9 9 9-9-9-9H3v9Z"/><circle cx="8" cy="8" r="1"/></svg>
                     <span>Etiquetas</span>
                 </a>
                 <a class="nav-item" href="#dashboard-settings" data-nav="dashboard-settings">
                     <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="9"/><rect x="4" y="14" width="6" height="6"/><rect x="14" y="17" width="6" height="3"/></svg>
-                    <span>Personalizar inicio</span>
+                    <span>Personalizar dashboard</span>
                 </a>
                 <a class="nav-item" href="#settings" data-nav="settings">
                     <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.5 1A8 8 0 0 0 14 6l-.4-3h-4l-.4 3a8 8 0 0 0-2.4 1.1l-2.5-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.5-1A8 8 0 0 0 9.2 18l.4 3h4l.4-3a8 8 0 0 0 2.4-1.1l2.5 1 2-3.4-2-1.5a7 7 0 0 0 .1-1Z"/></svg>
@@ -213,7 +218,7 @@ header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-actio
     </div>
 
     <nav class="mobile-nav" aria-label="Navegación móvil">
-        <a class="is-active" href="#dashboard" data-nav="dashboard"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm0 7h6v-3H4v3Zm10 0h6v-9h-6v9Zm0-16v3h6V4h-6Z"/></svg><span>Inicio</span></a>
+        <a class="is-active" href="#dashboard" data-nav="dashboard"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm0 7h6v-3H4v3Zm10 0h6v-9h-6v9Zm0-16v3h6V4h-6Z"/></svg><span>Dashboard</span></a>
         <a href="#projects" data-nav="projects"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3.5 7.5h6l2-2h9v14h-17v-12Z"/><path d="M3.5 10.5h17"/></svg><span>Proyectos</span></a>
         <a href="#ideas" data-nav="ideas"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M8.4 15.5A7 7 0 1 1 15.6 15.5c-.9.7-1.1 1.3-1.1 2h-5c0-.7-.2-1.3-1.1-2Z"/></svg><span>Ideas</span></a>
         <a href="#clients" data-nav="clients"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM16 11l2 2 3-4"/></svg><span>Clientes</span></a>
@@ -266,7 +271,7 @@ header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-actio
                 <kbd>esc</kbd>
             </header>
             <div class="search-results" id="search-results">
-                <div class="search-hint"><span aria-hidden="true">⌕</span><p>Escribí para encontrar cualquier cosa en tu espacio.</p></div>
+                <div class="search-hint"><span aria-hidden="true">⌕</span><p>Escribe para encontrar cualquier cosa en tu espacio.</p></div>
             </div>
         </div>
     </dialog>
@@ -285,24 +290,24 @@ header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-actio
 
     <section class="auth-overlay" id="auth-overlay" role="dialog" aria-modal="true" hidden aria-labelledby="auth-title">
         <div class="auth-art" aria-hidden="true">
-            <div class="auth-brand"><svg class="brand-mark" viewBox="0 0 1098 383"><use href="#vdg"/></svg><strong>CodePanel</strong></div>
+            <div class="auth-brand"><svg class="brand-mark" viewBox="0 0 1098 383" aria-hidden="true"><use href="#vdg"/></svg><strong>CodePanel</strong></div>
             <p class="auth-claim"><small>Tu estudio, en orden.</small><strong>Ideas que avanzan.<br>Proyectos con rumbo.</strong></p>
             <p>Hecho para quienes disfrutan crear, sin convertir su organización en otro proyecto.</p>
         </div>
         <div class="auth-panel">
             <form id="auth-form" novalidate>
-                <span class="auth-kicker">Bienvenido a tu espacio</span>
-                <h1 id="auth-title">Volvé a poner tus ideas en marcha.</h1>
-                <p class="auth-lead">Ingresá para continuar o creá tu espacio personal en un minuto.</p>
+                <span class="auth-kicker">Acceso a tu espacio</span>
+                <h1 id="auth-title">Vuelve a poner tus ideas en marcha.</h1>
+                <p class="auth-lead">Entra para continuar o crea tu espacio personal en un minuto.</p>
                 <div class="auth-tabs" role="tablist" aria-label="Acceso">
                     <button class="is-active" type="button" role="tab" aria-selected="true" data-auth-mode="login">Ingresar</button>
                     <button type="button" role="tab" aria-selected="false" data-auth-mode="register">Crear cuenta</button>
                 </div>
-                <div class="form-field auth-name-field" hidden><label for="auth-name">Tu nombre</label><input id="auth-name" name="name" autocomplete="name" placeholder="¿Cómo te llamás?"></div>
-                <div class="form-field"><label for="auth-email">Correo electrónico</label><input id="auth-email" name="email" type="email" autocomplete="email" placeholder="vos@ejemplo.com" required></div>
+                <div class="form-field auth-name-field" hidden><label for="auth-name">Tu nombre</label><input id="auth-name" name="name" autocomplete="name" placeholder="¿Cómo te llamas?"></div>
+                <div class="form-field"><label for="auth-email">Correo electrónico</label><input id="auth-email" name="email" type="email" autocomplete="email" placeholder="tu@ejemplo.com" required></div>
                 <div class="form-field"><label for="auth-password">Contraseña</label><input id="auth-password" name="password" type="password" autocomplete="current-password" placeholder="Mínimo 8 caracteres" minlength="8" required></div>
                 <p class="form-error" id="auth-error" role="alert" hidden></p>
-                <button class="button button-primary auth-submit" type="submit"><span>Entrar a mi espacio</span><span aria-hidden="true">→</span></button>
+                <button class="button button-primary auth-submit" type="submit"><span>Entrar a mi espacio</span><svg aria-hidden="true" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></button>
             </form>
         </div>
     </section>

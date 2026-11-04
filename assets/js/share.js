@@ -90,7 +90,7 @@
         previews.replaceChildren();
         const files = Array.from(imageInput.files || []);
         if (files.length > 4) {
-            document.querySelector('[data-error="images"]').textContent = 'Seleccioná como máximo cuatro imágenes.';
+            document.querySelector('[data-error="images"]').textContent = 'Selecciona como máximo cuatro imágenes.';
         }
         files.slice(0, 4).forEach((file) => {
             const url = URL.createObjectURL(file);
@@ -119,7 +119,7 @@
         clearErrors();
         if (!form.reportValidity()) return;
         if ((imageInput.files?.length || 0) > 4) {
-            showErrors({ images: 'Seleccioná como máximo cuatro imágenes.' });
+            showErrors({ images: 'Selecciona como máximo cuatro imágenes.' });
             return;
         }
         const button = document.querySelector('#submit-feedback');

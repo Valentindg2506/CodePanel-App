@@ -16,6 +16,7 @@ final class DatabaseStore implements DataStore
     private const OVERVIEW_RESOURCE_LIMIT = 1000;
     private const OVERVIEW_BUDGET_LIMIT = 1000;
     private const OVERVIEW_ATTACHMENT_LIMIT = 500;
+    private const OVERVIEW_SNIPPET_LIMIT = 200;
 
     /** @var array<int, bool> */
     private array $tagsSynchronized = [];
@@ -155,6 +156,9 @@ final class DatabaseStore implements DataStore
             'releases' => $this->projectOverviewRows('releases', $projectId, $userId, self::OVERVIEW_RELEASE_LIMIT),
             'resources' => $this->projectOverviewRows('resources', $projectId, $userId, self::OVERVIEW_RESOURCE_LIMIT),
             'budgets' => $this->projectOverviewRows('budgets', $projectId, $userId, self::OVERVIEW_BUDGET_LIMIT),
+            'snippets' => Schema::hasTable($this->pdo, 'snippets')
+                ? $this->projectOverviewRows('snippets', $projectId, $userId, self::OVERVIEW_SNIPPET_LIMIT)
+                : [],
             'attachments' => array_map(function (array $row): array {
                 $attachment = $this->castAttachment($row);
                 unset($attachment['stored_name']);
@@ -216,6 +220,9 @@ final class DatabaseStore implements DataStore
             $this->syncTags($userId, $data['tags']);
         }
         $prepared = $this->prepareForDatabase($entity, $data);
+        if ($prepared === [] && $data !== []) {
+            throw new ApiException('Esta función estará disponible cuando se aplique la última migración de la base de datos.', 409);
+        }
         if ($prepared !== []) {
             $assignments = array_map(static fn (string $column): string => "{$column} = :{$column}", array_keys($prepared));
             $sql = "UPDATE {$spec['table']} SET " . implode(', ', $assignments) . ' WHERE id = :_id AND user_id = :_user_id';
@@ -1315,6 +1322,7 @@ final class DatabaseStore implements DataStore
             'payments' => ['t.*, b.title AS budget_title', 'LEFT JOIN budgets b ON b.id = t.budget_id AND b.user_id = t.user_id'],
             'releases' => ['t.*, p.name AS project_name', 'LEFT JOIN projects p ON p.id = t.project_id AND p.user_id = t.user_id'],
             'resources' => ['t.*, p.name AS project_name', 'LEFT JOIN projects p ON p.id = t.project_id AND p.user_id = t.user_id'],
+            'snippets' => ['t.*, p.name AS project_name', 'LEFT JOIN projects p ON p.id = t.project_id AND p.user_id = t.user_id'],
             'reminders' => ['t.*, p.name AS project_name', 'LEFT JOIN projects p ON p.id = t.project_id AND p.user_id = t.user_id'],
             'time_entries' => [
                 't.*, p.name AS project_name, task.title AS task_title, '
@@ -1343,6 +1351,11 @@ final class DatabaseStore implements DataStore
             if (array_key_exists($field, $data)) {
                 $data[$field] = $data[$field] ? 1 : 0;
             }
+        }
+        // Las columnas de una migración pendiente se omiten: el resto del registro se guarda igual.
+        $columns = Schema::columns($this->pdo, (string) $spec['table']);
+        if ($columns !== []) {
+            $data = array_intersect_key($data, array_flip($columns));
         }
         return $data;
     }

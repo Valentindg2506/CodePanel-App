@@ -152,6 +152,7 @@ final class DemoStore implements DataStore
             'releases' => $this->projectOverviewRows('releases', $projectId, $userId, self::OVERVIEW_RELEASE_LIMIT),
             'resources' => $this->projectOverviewRows('resources', $projectId, $userId, self::OVERVIEW_RESOURCE_LIMIT),
             'budgets' => $this->projectOverviewRows('budgets', $projectId, $userId, self::OVERVIEW_BUDGET_LIMIT),
+            'snippets' => $this->projectOverviewRows('snippets', $projectId, $userId, 200),
             'attachments' => array_map(function (array $row): array {
                 $attachment = $this->castAttachment($row);
                 unset($attachment['stored_name']);
@@ -235,6 +236,7 @@ final class DemoStore implements DataStore
                 $this->nullForeignKey('budgets', 'project_id', $id, $userId);
                 $this->nullForeignKey('resources', 'project_id', $id, $userId);
                 $this->nullForeignKey('reminders', 'project_id', $id, $userId);
+                $this->nullForeignKey('snippets', 'project_id', $id, $userId);
                 $this->nullForeignKey('time_entries', 'project_id', $id, $userId);
                 $this->deleteByForeignKey('releases', 'project_id', $id, $userId);
             } elseif ($entity === 'tasks') {
@@ -847,6 +849,12 @@ final class DemoStore implements DataStore
                     'id' => 1, 'user_id' => 1, 'project_id' => 1, 'title' => 'Cerrar flujo de onboarding',
                     'description' => 'Validar los estados vacíos y el primer acceso.', 'status' => 'in_progress', 'priority' => 'high',
                     'assignee' => null, 'due_date' => date('Y-m-d', strtotime('+1 day')), 'completed_at' => null,
+                    'estimated_minutes' => 240,
+                    'checklist' => [
+                        ['text' => 'Estados vacíos de proyectos y tareas', 'done' => true],
+                        ['text' => 'Correo de invitación', 'done' => true],
+                        ['text' => 'Primer acceso con datos de ejemplo', 'done' => false],
+                    ],
                     'created_at' => date('Y-m-d H:i:s', strtotime('-5 days')), 'updated_at' => $now,
                 ],
                 [
@@ -929,6 +937,22 @@ final class DemoStore implements DataStore
                     'created_at' => date('Y-m-d H:i:s', strtotime('-3 days')), 'updated_at' => $yesterday,
                 ],
             ],
+            'snippets' => [
+                [
+                    'id' => 1, 'user_id' => 1, 'project_id' => 1, 'title' => 'Desplegar en producción',
+                    'language' => 'bash',
+                    'content' => "git pull origin main\ncomposer install --no-dev --optimize-autoloader\nphp artisan migrate --force\nphp artisan config:cache",
+                    'tags' => ['deploy'],
+                    'created_at' => date('Y-m-d H:i:s', strtotime('-6 days')), 'updated_at' => $yesterday,
+                ],
+                [
+                    'id' => 2, 'user_id' => 1, 'project_id' => 1, 'title' => 'Tareas abiertas por proyecto',
+                    'language' => 'sql',
+                    'content' => "SELECT p.name, COUNT(*) AS abiertas\nFROM tasks t\nJOIN projects p ON p.id = t.project_id\nWHERE t.status <> 'done'\nGROUP BY p.name\nORDER BY abiertas DESC;",
+                    'tags' => ['consultas'],
+                    'created_at' => date('Y-m-d H:i:s', strtotime('-4 days')), 'updated_at' => date('Y-m-d H:i:s', strtotime('-4 days')),
+                ],
+            ],
             'resources' => [
                 [
                     'id' => 1, 'user_id' => 1, 'project_id' => 1, 'name' => 'Servidor de producción',
@@ -937,6 +961,7 @@ final class DemoStore implements DataStore
                     'status' => 'attention', 'renewal_date' => date('Y-m-d', strtotime('+7 days')),
                     'cost' => 12.0, 'currency' => 'USD', 'billing_cycle' => 'monthly',
                     'notes' => 'Revisar uso de disco antes de renovar.',
+                    'credential_ref' => '1Password → Atlas → Producción',
                     'created_at' => date('Y-m-d H:i:s', strtotime('-25 days')), 'updated_at' => $now,
                 ],
                 [
@@ -1031,7 +1056,7 @@ final class DemoStore implements DataStore
                 : 'personal';
             $clientId = $row['client_id'] ?? null;
             $row['client_name'] = $clientId === null ? null : $this->relatedName('clients', (int) $clientId, 'name', $userId);
-        } elseif (in_array($entity, ['tasks', 'devlogs', 'releases', 'resources', 'reminders'], true)) {
+        } elseif (in_array($entity, ['tasks', 'devlogs', 'releases', 'resources', 'reminders', 'snippets'], true)) {
             $projectId = $row['project_id'] ?? null;
             $row['project_name'] = $projectId === null ? null : $this->relatedName('projects', (int) $projectId, 'name', $userId);
         } elseif ($entity === 'budgets') {

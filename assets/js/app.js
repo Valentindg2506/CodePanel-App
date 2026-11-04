@@ -2,11 +2,11 @@
     'use strict';
 
     const API_BASE = 'api/index.php';
-    const ROUTES = ['dashboard', 'projects', 'ideas', 'tasks', 'reminders', 'calendar', 'devlogs', 'clients', 'leads', 'budgets', 'releases', 'resources', 'time', 'profitability', 'weekly', 'files', 'tags', 'dashboard-settings', 'settings'];
+    const ROUTES = ['dashboard', 'projects', 'ideas', 'tasks', 'reminders', 'calendar', 'devlogs', 'clients', 'leads', 'budgets', 'releases', 'resources', 'time', 'profitability', 'weekly', 'files', 'snippets', 'tags', 'dashboard-settings', 'settings'];
     const ENTITY_ROUTE = {
         project: 'projects', idea: 'ideas', task: 'tasks', devlog: 'devlogs', client: 'clients', lead: 'leads',
         budget: 'budgets', payment: 'payments', release: 'releases', resource: 'resources', reminder: 'reminders',
-        time_entry: 'time_entries', weekly_review: 'weekly_reviews', tag: 'tags',
+        time_entry: 'time_entries', weekly_review: 'weekly_reviews', tag: 'tags', snippet: 'snippets',
     };
     const ENTITY_PAGE = { ...ENTITY_ROUTE, payment: 'budgets', time_entry: 'time', weekly_review: 'weekly', tag: 'tags', reminder: 'reminders', attachment: 'files' };
     const ROUTE_ENTITY = Object.fromEntries(Object.entries(ENTITY_ROUTE).map(([singular, plural]) => [plural, singular]));
@@ -18,6 +18,9 @@
         user: null,
         csrf: '',
         demoMode: false,
+        features: {},
+        quietRender: false,
+        lastPaintedRoute: null,
         registrationEnabled: true,
         route: 'dashboard',
         cache: new Map(),
@@ -29,7 +32,8 @@
                 view: localStorage.getItem('cp-project-view') || 'grid',
             },
             ideas: { search: '', status: 'all' },
-            tasks: { search: '', status: 'all' },
+            snippets: { search: '', status: 'all' },
+            tasks: { search: '', status: 'all', view: (() => { try { return localStorage.getItem('cp-task-view') === 'board' ? 'board' : 'list'; } catch { return 'list'; } })() },
             clients: { search: '', status: 'all' },
             leads: { search: '' },
             devlogs: { search: '', status: 'all' },
@@ -102,14 +106,14 @@
         pending: 'Pendiente', dismissed: 'Descartado',
     };
     const PRIORITY = { low: 'Baja', medium: 'Media', high: 'Alta', urgent: 'Urgente' };
-    const ROUTE_NAMES = { dashboard: 'Panorama', projects: 'Proyectos', ideas: 'Semillero', tasks: 'Tareas', reminders: 'Recordatorios', calendar: 'Calendario', devlogs: 'Bitácora', clients: 'Clientes', leads: 'Oportunidades', budgets: 'Presupuestos y cobros', releases: 'Entregas y versiones', resources: 'Recursos e infraestructura', time: 'Control de tiempo', profitability: 'Rentabilidad', weekly: 'Revisión semanal', files: 'Archivos y documentación', tags: 'Etiquetas', 'dashboard-settings': 'Personalizar inicio', settings: 'Configuración' };
-    const ENTITY_NAMES = { project: 'proyecto', idea: 'idea', task: 'tarea', devlog: 'entrada', client: 'cliente', lead: 'oportunidad', budget: 'presupuesto', payment: 'cobro', release: 'entrega', resource: 'recurso', reminder: 'recordatorio', time_entry: 'registro de tiempo', weekly_review: 'revisión semanal', tag: 'etiqueta' };
-    const RECORD_PREVIEW_ENTITIES = new Set(['idea','task','reminder','devlog','client','lead','budget','payment','release','resource','time_entry','weekly_review','attachment','tag']);
+    const ROUTE_NAMES = { dashboard: 'Dashboard', projects: 'Proyectos', ideas: 'Semillero', tasks: 'Tareas', reminders: 'Recordatorios', calendar: 'Calendario', devlogs: 'Bitácora', clients: 'Clientes', leads: 'Oportunidades', budgets: 'Presupuestos y cobros', releases: 'Entregas y versiones', resources: 'Recursos e infraestructura', time: 'Control de tiempo', profitability: 'Rentabilidad', weekly: 'Revisión semanal', files: 'Archivos y documentación', tags: 'Etiquetas', snippets: 'Fragmentos', 'dashboard-settings': 'Personalizar dashboard', settings: 'Configuración' };
+    const ENTITY_NAMES = { project: 'proyecto', idea: 'idea', task: 'tarea', devlog: 'entrada', client: 'cliente', lead: 'oportunidad', budget: 'presupuesto', payment: 'cobro', release: 'entrega', resource: 'recurso', reminder: 'recordatorio', time_entry: 'registro de tiempo', weekly_review: 'revisión semanal', tag: 'etiqueta', snippet: 'fragmento' };
+    const RECORD_PREVIEW_ENTITIES = new Set(['idea','task','reminder','devlog','client','lead','budget','payment','release','resource','time_entry','weekly_review','attachment','tag','snippet']);
     const RECORD_PREVIEW_LABELS = {
         idea: 'Idea', task: 'Tarea', reminder: 'Recordatorio', devlog: 'Bitácora', client: 'Cliente',
         lead: 'Oportunidad', budget: 'Presupuesto', payment: 'Cobro', release: 'Entrega y versión',
         resource: 'Recurso e infraestructura', time_entry: 'Registro de tiempo', weekly_review: 'Revisión semanal',
-        attachment: 'Archivo', tag: 'Etiqueta',
+        attachment: 'Archivo', tag: 'Etiqueta', snippet: 'Fragmento',
     };
     const DEVLOG_TYPES = { progress: 'Avance', decision: 'Decisión', blocker: 'Bloqueo', learning: 'Aprendizaje', note: 'Nota' };
     const PAYMENT_METHODS = { transfer: 'Transferencia', cash: 'Efectivo', card: 'Tarjeta', digital_wallet: 'Billetera digital', other: 'Otro medio' };
@@ -176,7 +180,7 @@
         if (diff === -1) return 'Ayer';
         if (diff > 1 && diff < 7) return `En ${diff} días`;
         if (diff < -1 && diff > -7) return `Hace ${Math.abs(diff)} días`;
-        return formatDate(value);
+        return shortDate(value);
     };
     const dateISO = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     const todayISO = () => zonedCivil(new Date());
@@ -230,12 +234,20 @@
             alert: '<path d="M12 4 3.5 20h17L12 4Z"/><path d="M12 9v5M12 17h.01"/>',
             plus: '<path d="M12 5v14M5 12h14"/>',
             arrow: '<path d="M5 12h14M14 7l5 5-5 5"/>',
-            spark: '<path d="m12 3 1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9l4.6-1.4L12 3ZM19 15l.7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15Z"/>',
+            chevron: '<path d="m9 6 6 6-6 6"/>',
+            tag: '<path d="M3.5 12.5V4.5a1 1 0 0 1 1-1h8l8 8-9 9-8-8Z"/><circle cx="8" cy="8" r="1.4"/>',
+            list: '<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>',
+            copy: '<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"/>',
+            key: '<circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 8.7-8.7M16 7l2.5 2.5M14 9l2 2"/>',
+            code: '<path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/>',
+            chevronLeft: '<path d="m15 6-6 6 6 6"/>',
+            user: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/>',
+            sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
             pin: '<path d="m8 4h8l-1 5 3 3v1H6v-1l3-3-1-5ZM12 13v8"/>',
             image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m4 18 5-5 3 3 2-2 6 5"/>',
             drag: '<path d="M8 5h.01M8 12h.01M8 19h.01M16 5h.01M16 12h.01M16 19h.01"/>',
         };
-        return `<svg aria-hidden="true" viewBox="0 0 24 24">${paths[name] || paths.spark}</svg>`;
+        return `<svg aria-hidden="true" viewBox="0 0 24 24">${paths[name] || ''}</svg>`;
     }
 
     class ApiError extends Error {
@@ -259,7 +271,7 @@
                 });
             } catch (error) {
                 setSync('error', 'Sin conexión');
-                throw new ApiError('No pudimos conectar con CodePanel. Revisá tu conexión e intentá otra vez.');
+                throw new ApiError('No pudimos conectar con CodePanel. Revisa tu conexión e inténtalo otra vez.');
             }
             let payload;
             try { payload = await response.json(); }
@@ -342,7 +354,7 @@
     }
 
     function relatedCollections(entity) {
-        if (entity === 'project') return ['tasks', 'devlogs', 'budgets', 'releases', 'resources', 'reminders', 'time_entries', 'attachments', 'attention'];
+        if (entity === 'project') return ['tasks', 'devlogs', 'budgets', 'releases', 'resources', 'reminders', 'time_entries', 'attachments', 'attention', 'snippets'];
         if (entity === 'client') return ['projects', 'budgets'];
         if (entity === 'budget') return ['payments', 'attention'];
         if (entity === 'payment') return ['budgets'];
@@ -356,6 +368,7 @@
     }
 
     function renderLoading() {
+        if (state.quietRender && dom.view.children.length) return;
         dom.view.setAttribute('aria-busy', 'true');
         dom.view.innerHTML = `<div class="page-skeleton" aria-label="Cargando"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-subtitle"></div><div class="skeleton-grid"><div></div><div></div><div></div><div></div></div><div class="skeleton skeleton-panel"></div></div>`;
     }
@@ -366,11 +379,823 @@
     }
 
     function emptyState(entity, title, copy) {
-        return `<div class="empty-state"><div class="empty-inner"><div class="empty-art"><span>＋</span></div><h2>${escapeHTML(title)}</h2><p>${escapeHTML(copy)}</p><button class="button button-primary" type="button" data-create="${entity}">Crear ${ENTITY_NAMES[entity]}</button></div></div>`;
+        return `<div class="empty-state"><div class="empty-inner"><div class="empty-art">${icon('plus')}</div><h2>${escapeHTML(title)}</h2><p>${escapeHTML(copy)}</p><button class="button button-primary" type="button" data-create="${entity}">Crear ${ENTITY_NAMES[entity]}</button></div></div>`;
     }
 
+    // Dashboard en dos columnas independientes: cada bloque se coloca, en el orden elegido, bajo la columna
+    // más corta. Así no quedan huecos entre tarjetas de alturas distintas. Los bloques anchos cortan la rejilla.
+    const DASHBOARD_TWO_COLUMNS = window.matchMedia('(min-width: 941px)');
+    function layoutDashboard() {
+        const grid = dom.view.querySelector('.dashboard-widget-grid');
+        if (!grid) return;
+        if (!grid.widgetOrder) grid.widgetOrder = [...grid.children].filter(node => node.classList.contains('dashboard-widget') || node.dataset.dashboardWidget);
+        const widgets = grid.widgetOrder;
+        grid.replaceChildren();
+        if (!DASHBOARD_TWO_COLUMNS.matches) { grid.append(...widgets); return; }
+        let columns = null;
+        widgets.forEach(widget => {
+            if (widget.classList.contains('is-wide')) { columns = null; grid.append(widget); return; }
+            if (!columns) {
+                const masonry = document.createElement('div');
+                masonry.className = 'dashboard-masonry';
+                columns = [document.createElement('div'), document.createElement('div')];
+                columns.forEach(column => { column.className = 'dashboard-column'; masonry.append(column); });
+                grid.append(masonry);
+            }
+            const target = columns[0].offsetHeight <= columns[1].offsetHeight ? columns[0] : columns[1];
+            target.append(widget);
+        });
+    }
+    DASHBOARD_TWO_COLUMNS.addEventListener?.('change', () => { if (state.route === 'dashboard') layoutDashboard(); });
+
+    // ===== Fase 1: Markdown, importes, fechas cortas, paleta de comandos, atajos y exportaciones =====
+
+    // Markdown seguro: todo el texto se escapa antes de añadir solo etiquetas conocidas; los enlaces pasan por safeUrl.
+    function markdownInline(text) {
+        const codes = [];
+        let html = escapeHTML(text).replace(/`([^`\n]+)`/g, (match, code) => { codes.push(`<code>${code}</code>`); return `\u0001${codes.length - 1}\u0001`; });
+        html = html.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (match, label, url) => {
+            const href = safeUrl(url.replace(/&amp;/g, '&'));
+            return href === '#' ? label : `<a href="${escapeHTML(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+        });
+        html = html.replace(/(^|\s)(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g, (match, space, url) => {
+            const href = safeUrl(url.replace(/&amp;/g, '&'));
+            return href === '#' ? match : `${space}<a href="${escapeHTML(href)}" target="_blank" rel="noopener noreferrer">${url}</a>`;
+        });
+        html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/(^|[\s(])\*([^*\s][^*\n]*?)\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
+            .replace(/(^|[\s(])_([^_\s][^_\n]*?)_(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
+            .replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
+        return html.replace(/\u0001(\d+)\u0001/g, (match, index) => codes[Number(index)]);
+    }
+    function markdownHTML(source = '') {
+        const lines = String(source ?? '').replace(/\r\n?/g, '\n').split('\n');
+        const LIST = /^\s*([-*+]|\d+[.)])\s+/;
+        const isBlockStart = line => /^```/.test(line) || /^#{1,3}\s/.test(line) || LIST.test(line) || /^>\s?/.test(line) || /^\s*(---|\*\*\*)\s*$/.test(line);
+        const out = [];
+        let i = 0;
+        while (i < lines.length) {
+            const line = lines[i];
+            if (!line.trim()) { i += 1; continue; }
+            const fence = line.match(/^```\s*([\w#+.-]*)\s*$/);
+            if (fence) {
+                const code = []; i += 1;
+                while (i < lines.length && !/^```\s*$/.test(lines[i])) code.push(lines[i++]);
+                i += 1;
+                out.push(`<pre class="md-code"${fence[1] ? ` data-lang="${escapeHTML(fence[1])}"` : ''}><code>${escapeHTML(code.join('\n'))}</code></pre>`);
+                continue;
+            }
+            const heading = line.match(/^(#{1,3})\s+(.*)$/);
+            if (heading) { out.push(`<p class="md-heading md-h${heading[1].length}">${markdownInline(heading[2])}</p>`); i += 1; continue; }
+            if (/^\s*(---|\*\*\*)\s*$/.test(line)) { out.push('<hr>'); i += 1; continue; }
+            if (/^>\s?/.test(line)) {
+                const quote = [];
+                while (i < lines.length && /^>\s?/.test(lines[i])) quote.push(lines[i++].replace(/^>\s?/, ''));
+                out.push(`<blockquote>${quote.map(markdownInline).join('<br>')}</blockquote>`);
+                continue;
+            }
+            const marker = line.match(LIST);
+            if (marker) {
+                const ordered = /\d/.test(marker[1]);
+                const items = [];
+                while (i < lines.length && LIST.test(lines[i]) && /\d/.test(lines[i].match(LIST)[1]) === ordered) {
+                    const item = lines[i++].replace(LIST, '');
+                    const task = item.match(/^\[( |x|X)\]\s+(.*)$/);
+                    items.push(task
+                        ? `<li class="md-task${task[1].trim() ? ' is-done' : ''}"><span class="md-check" aria-hidden="true"></span><span class="sr-only">${task[1].trim() ? 'Hecho:' : 'Pendiente:'} </span>${markdownInline(task[2])}</li>`
+                        : `<li>${markdownInline(item)}</li>`);
+                }
+                out.push(`<${ordered ? 'ol' : 'ul'}>${items.join('')}</${ordered ? 'ol' : 'ul'}>`);
+                continue;
+            }
+            const paragraph = [];
+            do { paragraph.push(lines[i++]); } while (i < lines.length && lines[i].trim() && !isBlockStart(lines[i]));
+            out.push(`<p>${paragraph.map(markdownInline).join('<br>')}</p>`);
+        }
+        return `<div class="markdown">${out.join('')}</div>`;
+    }
+    // Versión en texto plano para tarjetas y listas, donde solo caben dos o tres líneas.
+    function markdownPlain(source = '') {
+        return String(source ?? '')
+            .replace(/```[\w#+.-]*\n?/g, '')
+            .replace(/`([^`]+)`/g, '$1')
+            .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+            .replace(/^\s*#{1,3}\s+/gm, '')
+            .replace(/^\s*>\s?/gm, '')
+            .replace(/^\s*([-*+]|\d+[.)])\s+(\[[ xX]\]\s+)?/gm, '')
+            .replace(/\*\*([^*]+)\*\*/g, '$1')
+            .replace(/~~([^~]+)~~/g, '$1')
+            .replace(/(^|\s)[*_]([^*_\n]+)[*_]/g, '$1$2')
+            .replace(/\n{2,}/g, '\n')
+            .trim();
+    }
+
+    // Importes: el símbolo y los céntimos se atenúan (marca). En listas van en DM Mono con la clase .amount.
+    function moneyHTML(value, currency) {
+        const safeCurrency = ['ARS', 'USD', 'EUR'].includes(currency) ? currency : (['ARS', 'USD', 'EUR'].includes(state.settings?.default_currency) ? state.settings.default_currency : 'USD');
+        const parts = new Intl.NumberFormat('es-AR', { style: 'currency', currency: safeCurrency, minimumFractionDigits: 0, maximumFractionDigits: 2 }).formatToParts(Number(value) || 0);
+        let fraction = '';
+        const main = parts.map(part => {
+            if (part.type === 'decimal' || part.type === 'fraction') { fraction += part.value; return ''; }
+            if (part.type === 'currency') return `<span class="money-symbol">${escapeHTML(part.value)}</span>`;
+            return escapeHTML(part.value);
+        }).join('');
+        return `<span class="money">${main}${fraction ? `<span class="money-cents">${escapeHTML(fraction)}</span>` : ''}</span>`;
+    }
+
+    // Fechas cortas para listas y tarjetas: «12 nov», con el año solo si no es el actual.
+    function shortDate(value) {
+        const civil = zonedCivil(value);
+        if (!civil) return 'Sin fecha';
+        const label = formatDate(civil, { day: 'numeric', month: 'short' });
+        const year = civil.slice(0, 4);
+        return year === String(zonedCivil(new Date()) || '').slice(0, 4) ? label : `${label} ${year}`;
+    }
+    function shortRange(from, to) { return `${shortDate(from)} – ${shortDate(to)}`; }
+
+    // ----- Paleta de comandos (Ctrl K) y búsqueda con operadores -----
+    const SEARCH_TYPES = {
+        proyecto: 'projects', proyectos: 'projects', idea: 'ideas', ideas: 'ideas', semillero: 'ideas', tarea: 'tasks', tareas: 'tasks',
+        cliente: 'clients', clientes: 'clients', oportunidad: 'leads', oportunidades: 'leads', bitacora: 'devlogs', 'bitácora': 'devlogs', entrada: 'devlogs',
+        presupuesto: 'budgets', presupuestos: 'budgets', cobro: 'payments', cobros: 'payments', entrega: 'releases', entregas: 'releases', version: 'releases', 'versión': 'releases',
+        recurso: 'resources', recursos: 'resources', recordatorio: 'reminders', recordatorios: 'reminders', tiempo: 'time_entries', registro: 'time_entries',
+        revision: 'weekly_reviews', 'revisión': 'weekly_reviews', fragmento: 'snippets', fragmentos: 'snippets', snippet: 'snippets', codigo: 'snippets', 'código': 'snippets', etiqueta: 'tags', etiquetas: 'tags', archivo: 'attachments', archivos: 'attachments',
+    };
+    function parseSearchQuery(query) {
+        const parsed = { text: [], types: [], project: '', tags: [], status: '' };
+        String(query || '').trim().split(/\s+/).filter(Boolean).forEach(token => {
+            const lower = token.toLocaleLowerCase('es');
+            const [key, ...rest] = lower.split(':');
+            const value = rest.join(':');
+            if (value && (key === 'tipo' || key === 'en')) { if (SEARCH_TYPES[value]) parsed.types.push(SEARCH_TYPES[value]); return; }
+            if (value && key === 'proyecto') { parsed.project = value; return; }
+            if (value && key === 'estado') { parsed.status = value; return; }
+            if (lower.startsWith('#') && lower.length > 1) { parsed.tags.push(lower.slice(1)); return; }
+            parsed.text.push(lower);
+        });
+        return parsed;
+    }
+    function searchMatches(item, route, parsed, titleField, subtitleField) {
+        const haystack = [item[titleField], item[subtitleField], item.email, item.notes, item.content, item.description, item.version, item.reference, ...asArray(item.tags), ...asArray(item.tech_stack)]
+            .map(value => String(value || '').toLocaleLowerCase('es')).join(' ');
+        if (parsed.text.some(word => !haystack.includes(word))) return false;
+        if (parsed.tags.length) {
+            const tags = asArray(item.tags).map(tag => String(tag).toLocaleLowerCase('es'));
+            if (parsed.tags.some(tag => !tags.some(value => value.includes(tag)))) return false;
+        }
+        if (parsed.project) {
+            const projectName = String(route === 'projects' ? item.name : item.project_name || '').toLocaleLowerCase('es');
+            if (!projectName.includes(parsed.project)) return false;
+        }
+        if (parsed.status) {
+            const status = `${item.status || ''} ${STATUS[item.status] || ''}`.toLocaleLowerCase('es');
+            if (!status.includes(parsed.status)) return false;
+        }
+        return true;
+    }
+
+    const NAV_SHORTCUTS = { d: 'dashboard', p: 'projects', s: 'ideas', t: 'tasks', a: 'calendar', b: 'devlogs', c: 'clients', o: 'leads', f: 'budgets', h: 'time', r: 'reminders', e: 'releases', i: 'resources', w: 'weekly', x: 'files', k: 'settings' };
+    function paletteCommands() {
+        const routeKey = Object.fromEntries(Object.entries(NAV_SHORTCUTS).map(([key, route]) => [route, key]));
+        const go = route => () => { history.pushState(null, '', `#${route}`); navigate(route); };
+        return [
+            ...['project', 'task', 'idea', 'devlog', 'client', 'time_entry', 'reminder', 'budget', 'release', ...(feature('snippets') ? ['snippet'] : [])].map(entity => ({ id: `create-${entity}`, label: newLabel(entity), hint: entity === 'project' ? 'N' : '', icon: 'plus', run: () => openEntityDialog(entity) })),
+            { id: 'timer', label: 'Iniciar temporizador', icon: 'clock', run: () => openEntityDialog('time_entry', null, { timer_start: true, work_date: todayISO(), billable: 1 }) },
+            ...ROUTES.filter(route => route !== 'snippets' || feature('snippets')).map(route => ({ id: `go-${route}`, label: `Ir a ${ROUTE_NAMES[route]}`, hint: routeKey[route] ? `G ${routeKey[route].toUpperCase()}` : '', icon: 'chevron', run: go(route) })),
+            { id: 'theme', label: 'Cambiar tema claro u oscuro', icon: 'sun', run: () => document.querySelector('#theme-button')?.click() },
+            { id: 'export', label: 'Exportar datos', icon: 'receipt', run: go('settings') },
+            { id: 'shortcuts', label: 'Ver atajos de teclado', hint: '?', icon: 'search', run: () => openShortcutsHelp() },
+        ];
+    }
+    function commandResults(commands, title) {
+        if (!commands.length) return '';
+        return `<p class="search-group-title">${escapeHTML(title)}</p>${commands.map(command => `<button class="search-result search-command" type="button" data-command="${escapeHTML(command.id)}"><span class="search-result-icon">${icon(command.icon)}</span><span><strong>${escapeHTML(command.label)}</strong></span>${command.hint ? `<kbd>${escapeHTML(command.hint)}</kbd>` : ''}</button>`).join('')}`;
+    }
+    function moveSearchSelection(step) {
+        const results = [...dom.searchResults.querySelectorAll('.search-result')];
+        if (!results.length) return;
+        const current = results.findIndex(result => result.classList.contains('is-selected'));
+        const next = current === -1 ? (step > 0 ? 0 : results.length - 1) : (current + step + results.length) % results.length;
+        results.forEach((result, index) => { result.classList.toggle('is-selected', index === next); result.setAttribute('aria-selected', String(index === next)); });
+        results[next].scrollIntoView({ block: 'nearest' });
+    }
+
+    // ----- Atajos de teclado -----
+    let pendingGoKey = 0;
+    function isTypingTarget(target) {
+        return Boolean(target?.closest?.('input, textarea, select, [contenteditable="true"], [role="combobox"]'));
+    }
+    function anyModalOpen() {
+        return [...document.querySelectorAll('dialog')].some(dialog => dialog.open);
+    }
+    function openShortcutsHelp() {
+        let dialog = document.querySelector('#shortcuts-dialog');
+        if (!dialog) {
+            dialog = document.createElement('dialog');
+            dialog.id = 'shortcuts-dialog';
+            dialog.className = 'app-dialog shortcuts-dialog';
+            dialog.setAttribute('aria-labelledby', 'shortcuts-title');
+            const navigation = Object.entries(NAV_SHORTCUTS).map(([key, route]) => [`G ${key.toUpperCase()}`, ROUTE_NAMES[route]]);
+            const rows = [['Ctrl K', 'Paleta de comandos y búsqueda'], ['/', 'Buscar'], ['N', 'Crear algo nuevo'], ['E', 'Editar la ficha abierta'], ['?', 'Ver estos atajos'], ['Esc', 'Cerrar ventanas y menús'], ...navigation];
+            dialog.innerHTML = `<header class="dialog-header"><div><span class="dialog-kicker">Teclado</span><h2 id="shortcuts-title">Atajos</h2></div><button class="icon-button" type="button" data-shortcuts-close aria-label="Cerrar atajos"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><div class="dialog-body"><p class="shortcuts-note">En la búsqueda puedes filtrar con <code>tipo:tarea</code>, <code>proyecto:atlas</code>, <code>estado:curso</code> o <code>#etiqueta</code>.</p><dl class="shortcuts-list">${rows.map(([keys, label]) => `<div><dt>${keys.split(' ').map(key => `<kbd>${escapeHTML(key)}</kbd>`).join(' ')}</dt><dd>${escapeHTML(label)}</dd></div>`).join('')}</dl></div>`;
+            dialog.addEventListener('click', event => { if (event.target === dialog || event.target.closest('[data-shortcuts-close]')) dialog.close(); });
+            document.body.append(dialog);
+        }
+        if (!dialog.open) dialog.showModal();
+    }
+    function handleShortcut(event) {
+        if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'k') {
+            event.preventDefault();
+            if (dom.searchDialog.open) dom.searchDialog.close(); else openSearch();
+            return;
+        }
+        if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || isTypingTarget(event.target)) return;
+        if (event.key === 'e' || event.key === 'E') {
+            const edit = dom.projectPreviewDialog?.open ? dom.projectPreviewDialog.querySelector('.project-preview-footer [data-project-preview-edit]')
+                : dom.recordPreviewDialog?.open ? dom.recordPreviewDialog.querySelector('[data-record-preview-edit]') : null;
+            if (edit) { event.preventDefault(); edit.click(); }
+            return;
+        }
+        if (anyModalOpen() || !dom.authOverlay.hidden) return;
+        if (event.key === '?') { event.preventDefault(); openShortcutsHelp(); return; }
+        if (event.key === 'n' || event.key === 'N') { event.preventDefault(); document.querySelector('#quick-create')?.click(); return; }
+        if (event.key === 'g' || event.key === 'G') { pendingGoKey = Date.now(); return; }
+        if (pendingGoKey && Date.now() - pendingGoKey < 1200) {
+            const route = NAV_SHORTCUTS[event.key.toLowerCase()];
+            pendingGoKey = 0;
+            if (route) { event.preventDefault(); history.pushState(null, '', `#${route}`); navigate(route); }
+        }
+    }
+
+    // ----- Exportaciones (se generan en el navegador con los datos de tu cuenta; no cambian nada) -----
+    function downloadFile(name, content, type) {
+        const url = URL.createObjectURL(new Blob([content], { type }));
+        const link = document.createElement('a');
+        link.href = url; link.download = name; link.hidden = true;
+        document.body.append(link); link.click(); link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+    }
+    // Las celdas de texto que empiezan por = + - @ se protegen para que una hoja de cálculo no las ejecute como fórmula.
+    const csvText = value => { let text = String(value ?? ''); if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`; return /[";\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+    const csvNumber = value => (value === null || value === undefined || value === '' || Number.isNaN(Number(value))) ? '' : String(Math.round(Number(value) * 100) / 100).replace('.', ',');
+    const toCSV = (headers, rows) => `\ufeff${[headers.map(csvText).join(';'), ...rows.map(row => row.join(';'))].join('\r\n')}`;
+    const exportStamp = () => todayISO();
+    async function exportData(kind, button) {
+        if (button) button.disabled = true;
+        try {
+            if (kind === 'time') {
+                const rows = await getCollection('time_entries', true);
+                const tasks = await getCollection('tasks').catch(() => []);
+                const taskName = id => tasks.find(task => Number(task.id) === Number(id))?.title || '';
+                const csv = toCSV(['Fecha', 'Proyecto', 'Tarea', 'Descripción', 'Minutos', 'Horas', 'Facturable', 'Coste por hora', 'Moneda', 'Etiquetas'],
+                    rows.map(item => { const minutes = elapsedMinutes(item); return [csvText(item.work_date), csvText(item.project_name), csvText(taskName(item.task_id)), csvText(item.description), csvNumber(minutes), csvNumber(minutes / 60), csvText(Number(item.billable) ? 'Sí' : 'No'), csvNumber(item.hourly_cost), csvText(item.cost_currency), csvText(asArray(item.tags).join(', '))]; }));
+                downloadFile(`codepanel-tiempo-${exportStamp()}.csv`, csv, 'text/csv;charset=utf-8');
+            } else if (kind === 'payments') {
+                const [payments, budgets] = await Promise.all([getCollection('payments', true), getCollection('budgets')]);
+                const budgetOf = id => budgets.find(budget => Number(budget.id) === Number(id)) || {};
+                const csv = toCSV(['Fecha', 'Presupuesto', 'Cliente', 'Proyecto', 'Importe', 'Moneda', 'Medio', 'Referencia', 'Notas'],
+                    payments.map(item => { const budget = budgetOf(item.budget_id); return [csvText(item.paid_at), csvText(item.budget_title || budget.title), csvText(budget.client_name), csvText(budget.project_name), csvNumber(item.amount), csvText(budget.currency), csvText(PAYMENT_METHODS[item.method] || item.method), csvText(item.reference), csvText(item.notes)]; }));
+                downloadFile(`codepanel-cobros-${exportStamp()}.csv`, csv, 'text/csv;charset=utf-8');
+            } else if (kind === 'backup') {
+                const routes = [...new Set([...Object.values(ENTITY_ROUTE), 'attachments'])].filter(route => route !== 'snippets' || feature('snippets'));
+                const results = await Promise.allSettled(routes.map(route => getCollection(route, true)));
+                const data = Object.fromEntries(routes.map((route, index) => [route, results[index].status === 'fulfilled' ? results[index].value : []]));
+                const backup = { app: 'CodePanel', exported_at: new Date().toISOString(), settings: state.settings || {}, data };
+                downloadFile(`codepanel-copia-${exportStamp()}.json`, JSON.stringify(backup, null, 2), 'application/json');
+            } else if (kind === 'calendar') {
+                const today = new Date();
+                const from = new Date(today.getTime() - 30 * 86_400_000).toISOString().slice(0, 10);
+                const to = new Date(today.getTime() + 334 * 86_400_000).toISOString().slice(0, 10);
+                const events = (await api.get(`calendar?from=${from}&to=${to}`)).data || [];
+                const icsText = value => String(value ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+                const day = value => String(value || '').slice(0, 10).replace(/-/g, '');
+                const nextDay = value => { const date = new Date(`${String(value).slice(0, 10)}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + 1); return date.toISOString().slice(0, 10).replace(/-/g, ''); };
+                const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+                const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//valentindg//CodePanel//ES', 'CALSCALE:GREGORIAN', 'X-WR-CALNAME:CodePanel',
+                    ...events.filter(event => /^\d{4}-\d{2}-\d{2}/.test(String(event.date || ''))).flatMap(event => ['BEGIN:VEVENT', `UID:${icsText(event.key || `${event.source_type}-${event.source_id}`)}@codepanel`, `DTSTAMP:${stamp}`, `DTSTART;VALUE=DATE:${day(event.date)}`, `DTEND;VALUE=DATE:${nextDay(event.date)}`, `SUMMARY:${icsText(event.title)}`, `DESCRIPTION:${icsText([CALENDAR_SOURCE_LABEL(event.source_type), event.project_name].filter(Boolean).join(' · '))}`, 'END:VEVENT']),
+                    'END:VCALENDAR'];
+                downloadFile(`codepanel-calendario-${exportStamp()}.ics`, lines.join('\r\n'), 'text/calendar;charset=utf-8');
+            }
+            toast('Exportación lista', 'El archivo se ha descargado en tu equipo.');
+        } catch (error) {
+            toast('No pudimos exportar', error.message || 'Inténtalo de nuevo en un momento.', 'error');
+        } finally { if (button) button.disabled = false; }
+    }
+    const CALENDAR_SOURCE_LABEL = type => ({ task: 'Tarea', reminder: 'Recordatorio', release: 'Entrega', budget: 'Presupuesto', payment: 'Cobro', resource: 'Recurso', project: 'Proyecto', lead: 'Oportunidad', client: 'Cliente' }[type] || 'Evento');
+
+    // ----- Temporizador: arrancar desde una tarea y verlo en la cabecera mientras corre -----
+    async function startTimerForTask(taskId) {
+        const tasks = await getCollection('tasks');
+        const task = tasks.find(item => Number(item.id) === Number(taskId));
+        if (!task) return;
+        state.formReturn = rememberPreview();
+        if (dom.projectPreviewDialog?.open) closeProjectPreview();
+        if (dom.recordPreviewDialog?.open) closeRecordPreview();
+        await openEntityDialog('time_entry', null, { timer_start: true, work_date: todayISO(), billable: 1, task_id: task.id, project_id: task.project_id || '', description: task.title || '' });
+    }
+    let timerPillInterval = 0;
+    async function refreshTimerPill() {
+        const actions = document.querySelector('.topbar-actions');
+        if (!actions || !state.user) return;
+        let entries = state.cache.get('time_entries')?.data;
+        if (!entries) { try { entries = await getCollection('time_entries'); } catch { return; } }
+        const running = (entries || []).find(item => Boolean(item.is_running) || (item.started_at && !item.ended_at));
+        let pill = actions.querySelector('.timer-pill');
+        clearInterval(timerPillInterval);
+        if (!running) { pill?.remove(); return; }
+        if (!pill) {
+            pill = document.createElement('a');
+            pill.className = 'timer-pill';
+            pill.href = '#time';
+            pill.dataset.nav = 'time';
+            actions.prepend(pill);
+        }
+        const paint = () => {
+            const minutes = elapsedMinutes(running);
+            const label = `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`;
+            pill.innerHTML = `<span class="timer-pill-dot" aria-hidden="true"></span><span class="timer-pill-time">${label}</span><span class="sr-only">Temporizador en marcha: ${escapeHTML(running.description || running.project_name || 'trabajo')}</span>`;
+            pill.title = `En marcha: ${running.description || running.project_name || 'trabajo'}`;
+        };
+        paint();
+        timerPillInterval = setInterval(paint, 30_000);
+    }
+
+    // ----- Tareas en tablero -----
+    const TASK_COLUMNS = [['todo', 'Por hacer', 'var(--purple)'], ['in_progress', 'En curso', 'var(--blue)'], ['done', 'Hechas', 'var(--sage)']];
+    function taskKanbanCard(task) {
+        return `<article class="kanban-card task-kanban-card${task.status === 'done' ? ' is-done' : ''}" draggable="true" data-kanban-task="${Number(task.id)}" data-record-preview="task" data-id="${Number(task.id)}">
+            <h3>${escapeHTML(task.title || 'Tarea sin título')}</h3>
+            <p>${escapeHTML(task.project_name || 'Sin proyecto')}</p>
+            ${taskExtrasMarkup(task) ? `<div class="task-kanban-chips">${taskExtrasMarkup(task)}</div>` : ''}
+            <footer><span class="task-kanban-meta"><i class="priority-dot priority-${escapeHTML(task.priority || 'medium')}" style="--priority-color:${task.priority === 'urgent' || task.priority === 'high' ? 'var(--danger)' : task.priority === 'low' ? 'var(--sage)' : 'var(--yellow)'}"></i>${escapeHTML(PRIORITY[task.priority] || 'Media')}</span>${task.due_date ? dueMarkup(task.due_date) : ''}</footer>
+            <div class="kanban-card-controls"><label><span>Estado</span><select data-task-status-select="${Number(task.id)}" aria-label="Cambiar estado de ${escapeHTML(task.title || 'la tarea')}">${optionList(TASK_COLUMNS.map(([value, label]) => [value, label]), task.status)}</select></label>${task.status !== 'done' ? `<button class="text-button" type="button" data-task-timer="${Number(task.id)}">${icon('clock')}Empezar</button>` : ''}</div>
+        </article>`;
+    }
+    function taskBoard(tasks) {
+        return `<div class="kanban-board task-kanban">${TASK_COLUMNS.map(([status, label, color]) => { const items = tasks.filter(task => task.status === status); return `<section class="kanban-column" data-task-column="${status}" style="--column-color:${color}" aria-label="${escapeHTML(label)}"><header class="kanban-header"><strong><i class="kanban-dot"></i>${escapeHTML(label)}</strong><span>${items.length}</span></header><div class="kanban-items">${items.length ? items.map(taskKanbanCard).join('') : '<div class="kanban-empty">Arrastra aquí una tarea.</div>'}</div></section>`; }).join('')}</div>`;
+    }
+    async function updateTaskStatus(id, status) {
+        if (!TASK_COLUMNS.some(([value]) => value === status)) return;
+        try {
+            await api.patch(`tasks/${Number(id)}`, { status });
+            invalidate('tasks', 'attention');
+            await refreshView();
+        } catch (error) { toast('No pudimos mover la tarea', error.message, 'error'); await refreshView(); }
+    }
+    function bindTaskBoard() {
+        let draggedTask = 0;
+        document.addEventListener('dragstart', event => {
+            const card = event.target.closest?.('[data-kanban-task]');
+            if (!card) return;
+            draggedTask = Number(card.dataset.kanbanTask);
+            card.classList.add('is-dragging');
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', String(draggedTask));
+        });
+        document.addEventListener('dragover', event => {
+            const column = event.target.closest?.('[data-task-column]');
+            if (!column || !draggedTask) return;
+            event.preventDefault();
+            document.querySelectorAll('[data-task-column].is-drop-target').forEach(node => { if (node !== column) node.classList.remove('is-drop-target'); });
+            column.classList.add('is-drop-target');
+        });
+        document.addEventListener('drop', event => {
+            const column = event.target.closest?.('[data-task-column]');
+            if (!column || !draggedTask) return;
+            event.preventDefault();
+            const id = draggedTask; draggedTask = 0;
+            column.classList.remove('is-drop-target');
+            state.kanban.suppressClickUntil = Date.now() + 500;
+            updateTaskStatus(id, column.dataset.taskColumn);
+        });
+        document.addEventListener('dragend', () => {
+            draggedTask = 0;
+            document.querySelectorAll('.is-dragging').forEach(node => node.classList.remove('is-dragging'));
+            document.querySelectorAll('[data-task-column].is-drop-target').forEach(node => node.classList.remove('is-drop-target'));
+        });
+    }
+
+    // ----- Revisión semanal: propuesta con lo que pasó esta semana -----
+    async function weeklyReviewPrefill() {
+        const week = weekBounds(new Date());
+        const inWeek = value => { const day = String(value || '').slice(0, 10); return day >= week.start && day <= week.end; };
+        const [tasks, devlogs, releases, entries] = await Promise.all(['tasks', 'devlogs', 'releases', 'time_entries'].map(route => getCollection(route).catch(() => [])));
+        const doneTasks = tasks.filter(task => task.status === 'done' && inWeek(task.completed_at || task.updated_at));
+        const shipped = releases.filter(release => inWeek(release.release_date));
+        const learned = devlogs.filter(entry => inWeek(entry.entry_date || entry.created_at) && ['progress', 'decision', 'learning'].includes(entry.entry_type));
+        const blockers = devlogs.filter(entry => inWeek(entry.entry_date || entry.created_at) && entry.entry_type === 'blocker');
+        const minutes = entries.filter(entry => inWeek(entry.work_date)).reduce((sum, entry) => sum + elapsedMinutes(entry), 0);
+        const next = tasks.filter(task => task.status !== 'done').sort((a, b) => ['urgent', 'high', 'medium', 'low'].indexOf(a.priority) - ['urgent', 'high', 'medium', 'low'].indexOf(b.priority) || String(a.due_date || '9999').localeCompare(String(b.due_date || '9999'))).slice(0, 3);
+        const list = items => items.map(item => `- ${item}`).join('\n');
+        const wins = [
+            doneTasks.length ? list(doneTasks.slice(0, 8).map(task => `${task.title}${task.project_name ? ` (${task.project_name})` : ''}`)) : '',
+            shipped.length ? list(shipped.map(release => `Entrega: ${release.version ? `${release.version} · ` : ''}${release.title}`)) : '',
+            learned.length ? list(learned.slice(0, 5).map(entry => entry.title)) : '',
+            minutes ? `- ${minutesLabel(minutes)} registrados` : '',
+        ].filter(Boolean).join('\n');
+        return {
+            week_start: week.start,
+            wins,
+            blockers: blockers.length ? list(blockers.map(entry => entry.title)) : '',
+            next_focus: next.length ? list(next.map(task => task.title)) : '',
+        };
+    }
+
+    // ===== Desplegables con el estilo de la marca =====
+    // El <select> nativo se queda debajo (formularios, validación y eventos «change» siguen igual) y encima se
+    // pinta un botón con su lista. En pantallas táctiles se deja el selector del sistema, que es más cómodo.
+    const CUSTOM_SELECTS = window.matchMedia('(hover: hover) and (pointer: fine)');
+    let selectUid = 0;
+    let openSelect = null;
+    let selectEscapeAt = 0;
+
+    function selectLabelText(select) {
+        const label = select.id ? document.querySelector(`label[for="${CSS.escape(select.id)}"]`) : null;
+        const text = label?.textContent || select.closest('label')?.querySelector('.sr-only')?.textContent || select.getAttribute('aria-label') || '';
+        return text.replace(/\s+/g, ' ').trim();
+    }
+    function syncCustomSelect(select) {
+        const ui = select._cpSelect;
+        if (!ui) return;
+        const option = select.options[select.selectedIndex];
+        ui.value.textContent = option ? option.textContent : '';
+        ui.value.classList.toggle('is-placeholder', !option || option.value === '');
+        ui.button.disabled = select.disabled;
+        ui.root.classList.toggle('is-disabled', select.disabled);
+        ui.root.classList.toggle('is-invalid', select.getAttribute('aria-invalid') === 'true');
+    }
+    function closeCustomSelect({ focus = false } = {}) {
+        if (!openSelect) return;
+        const { ui } = openSelect;
+        ui.menu.hidden = true;
+        ui.button.setAttribute('aria-expanded', 'false');
+        ui.button.removeAttribute('aria-activedescendant');
+        ui.root.classList.remove('is-open');
+        if (focus) ui.button.focus({ preventScroll: true });
+        openSelect = null;
+    }
+    function positionCustomSelect(ui) {
+        const rect = ui.button.getBoundingClientRect();
+        const width = Math.max(rect.width, 180);
+        const below = window.innerHeight - rect.bottom - 12;
+        const above = rect.top - 12;
+        const openUp = below < 220 && above > below;
+        const maxHeight = Math.max(160, Math.min(320, openUp ? above : below));
+        Object.assign(ui.menu.style, {
+            left: `${Math.min(rect.left, window.innerWidth - width - 8)}px`,
+            width: `${width}px`,
+            maxHeight: `${maxHeight}px`,
+            top: openUp ? '' : `${rect.bottom + 6}px`,
+            bottom: openUp ? `${window.innerHeight - rect.top + 6}px` : '',
+        });
+        ui.menu.classList.toggle('is-up', openUp);
+    }
+    function renderCustomOptions(select, query = '') {
+        const ui = select._cpSelect;
+        const clean = query.trim().toLocaleLowerCase('es');
+        const options = [...select.options].filter(option => !option.hidden && (!clean || option.textContent.toLocaleLowerCase('es').includes(clean)));
+        ui.list.innerHTML = options.length ? options.map(option => {
+            const index = [...select.options].indexOf(option);
+            const selected = index === select.selectedIndex;
+            return `<div class="cp-option${selected ? ' is-selected' : ''}${option.disabled ? ' is-disabled' : ''}${option.value === '' ? ' is-empty' : ''}" role="option" id="${ui.id}-o${index}" data-index="${index}" aria-selected="${selected}"${option.disabled ? ' aria-disabled="true"' : ''}><span>${escapeHTML(option.textContent)}</span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg></div>`;
+        }).join('') : '<p class="cp-option-empty">Sin coincidencias</p>';
+        const active = ui.list.querySelector('.cp-option.is-selected:not(.is-disabled)') || ui.list.querySelector('.cp-option:not(.is-disabled)');
+        setActiveOption(select, active);
+    }
+    function setActiveOption(select, option) {
+        const ui = select._cpSelect;
+        ui.list.querySelectorAll('.cp-option.is-active').forEach(node => node.classList.remove('is-active'));
+        if (!option) { ui.button.removeAttribute('aria-activedescendant'); ui.search?.removeAttribute('aria-activedescendant'); return; }
+        option.classList.add('is-active');
+        ui.button.setAttribute('aria-activedescendant', option.id);
+        ui.search?.setAttribute('aria-activedescendant', option.id);
+        // Solo se desplaza la lista: scrollIntoView movería también la página y cerraría el menú.
+        const list = ui.list;
+        if (option.offsetTop < list.scrollTop) list.scrollTop = option.offsetTop - 6;
+        else if (option.offsetTop + option.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = option.offsetTop + option.offsetHeight - list.clientHeight + 6;
+    }
+    function moveActiveOption(select, step) {
+        const ui = select._cpSelect;
+        const options = [...ui.list.querySelectorAll('.cp-option:not(.is-disabled)')];
+        if (!options.length) return;
+        const current = options.indexOf(ui.list.querySelector('.cp-option.is-active'));
+        const next = step === Infinity ? options.length - 1 : step === -Infinity ? 0 : Math.max(0, Math.min(options.length - 1, (current === -1 ? 0 : current + step)));
+        setActiveOption(select, options[next]);
+    }
+    function chooseCustomOption(select, index) {
+        const option = select.options[index];
+        if (!option || option.disabled) return;
+        const changed = select.selectedIndex !== index;
+        select.selectedIndex = index;
+        syncCustomSelect(select);
+        closeCustomSelect({ focus: true });
+        if (changed) {
+            select.dispatchEvent(new Event('input', { bubbles: true }));
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }
+    function openCustomSelect(select) {
+        const ui = select._cpSelect;
+        if (select.disabled) return;
+        if (openSelect && openSelect.select !== select) closeCustomSelect();
+        openSelect = { select, ui };
+        ui.root.classList.add('is-open');
+        ui.button.setAttribute('aria-expanded', 'true');
+        ui.menu.hidden = false;
+        if (ui.search) ui.search.value = '';
+        renderCustomOptions(select);
+        positionCustomSelect(ui);
+        if (ui.search) ui.search.focus({ preventScroll: true });
+    }
+    function enhanceSelect(select) {
+        if (select._cpSelect || select.multiple || select.size > 1 || select.closest('.cp-select, [data-native-select]')) return;
+        const id = `cp-select-${++selectUid}`;
+        const root = document.createElement('div');
+        root.className = 'cp-select';
+        const startWidth = select.closest('.select-wrap, .kanban-card-controls') ? select.offsetWidth : 0;
+        select.before(root);
+        root.append(select);
+        const many = select.options.length > 10;
+        const labelText = selectLabelText(select);
+        root.insertAdjacentHTML('beforeend', `<button class="cp-select-trigger" type="button" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="${id}-list"${labelText ? ` aria-label="${escapeHTML(labelText)}"` : ''}><span class="cp-select-value"></span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><div class="cp-select-menu" hidden>${many ? `<div class="cp-select-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg><input type="text" placeholder="Buscar…" autocomplete="off" aria-label="Filtrar opciones" aria-controls="${id}-list"></div>` : ''}<div class="cp-select-list" role="listbox" id="${id}-list"${labelText ? ` aria-label="${escapeHTML(labelText)}"` : ''}></div></div>`);
+        const ui = { id, root, button: root.querySelector('.cp-select-trigger'), value: root.querySelector('.cp-select-value'), menu: root.querySelector('.cp-select-menu'), list: root.querySelector('.cp-select-list'), search: root.querySelector('.cp-select-search input') };
+        select._cpSelect = ui;
+        select.tabIndex = -1;
+        select.setAttribute('aria-hidden', 'true');
+        if (startWidth > 0) root.style.minWidth = `${startWidth}px`;
+        syncCustomSelect(select);
+
+        select.addEventListener('change', () => syncCustomSelect(select));
+        select.addEventListener('focus', () => ui.button.focus());
+        new MutationObserver(() => syncCustomSelect(select)).observe(select, { attributes: true, attributeFilter: ['disabled', 'aria-invalid'], childList: true });
+        ui.button.addEventListener('click', () => { if (openSelect?.select === select) closeCustomSelect(); else openCustomSelect(select); });
+        ui.button.addEventListener('keydown', event => {
+            const open = openSelect?.select === select;
+            if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key) && !open) { event.preventDefault(); openCustomSelect(select); return; }
+            if (!open) {
+                // Escribir una letra con el desplegable cerrado elige la primera opción que empieza así.
+                if (event.key.length === 1 && /\S/.test(event.key)) {
+                    const start = select.selectedIndex + 1;
+                    const options = [...select.options];
+                    const match = [...options.slice(start), ...options.slice(0, start)].find(option => !option.disabled && option.textContent.trim().toLocaleLowerCase('es').startsWith(event.key.toLocaleLowerCase('es')));
+                    if (match) { event.preventDefault(); chooseCustomOption(select, options.indexOf(match)); }
+                }
+                return;
+            }
+            handleOpenSelectKey(event, select);
+        });
+        ui.search?.addEventListener('input', () => renderCustomOptions(select, ui.search.value));
+        ui.search?.addEventListener('keydown', event => handleOpenSelectKey(event, select));
+        ui.list.addEventListener('mousedown', event => event.preventDefault());
+        ui.list.addEventListener('click', event => { const option = event.target.closest('.cp-option'); if (option) chooseCustomOption(select, Number(option.dataset.index)); });
+        ui.list.addEventListener('mousemove', event => { const option = event.target.closest('.cp-option:not(.is-disabled)'); if (option && !option.classList.contains('is-active')) setActiveOption(select, option); });
+    }
+    function handleOpenSelectKey(event, select) {
+        const ui = select._cpSelect;
+        if (event.key === 'ArrowDown') { event.preventDefault(); moveActiveOption(select, 1); }
+        else if (event.key === 'ArrowUp') { event.preventDefault(); moveActiveOption(select, -1); }
+        else if (event.key === 'Home' && !ui.search) { event.preventDefault(); moveActiveOption(select, -Infinity); }
+        else if (event.key === 'End' && !ui.search) { event.preventDefault(); moveActiveOption(select, Infinity); }
+        else if (event.key === 'Enter' || (event.key === ' ' && !ui.search)) { event.preventDefault(); const active = ui.list.querySelector('.cp-option.is-active'); if (active) chooseCustomOption(select, Number(active.dataset.index)); }
+        else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); selectEscapeAt = Date.now(); closeCustomSelect({ focus: true }); }
+        else if (event.key === 'Tab') closeCustomSelect();
+    }
+    function enhanceSelects(root = document) {
+        if (!CUSTOM_SELECTS.matches) return;
+        root.querySelectorAll('select:not([multiple])').forEach(enhanceSelect);
+    }
+    function bindCustomSelects() {
+        if (!CUSTOM_SELECTS.matches) return;
+        enhanceSelects();
+        let pending = false;
+        new MutationObserver(() => {
+            if (pending) return;
+            pending = true;
+            queueMicrotask(() => { pending = false; enhanceSelects(); if (openSelect && !document.contains(openSelect.ui.root)) openSelect = null; });
+        }).observe(document.body, { childList: true, subtree: true });
+        document.addEventListener('pointerdown', event => { if (openSelect && !openSelect.ui.root.contains(event.target)) closeCustomSelect(); }, true);
+        window.addEventListener('resize', () => closeCustomSelect());
+        // Al desplazar la página el menú acompaña a su botón; solo se cierra si el botón sale de la pantalla.
+        document.addEventListener('scroll', event => {
+            if (!openSelect || openSelect.ui.menu.contains(event.target)) return;
+            const rect = openSelect.ui.button.getBoundingClientRect();
+            if (rect.bottom < 0 || rect.top > window.innerHeight) closeCustomSelect();
+            else positionCustomSelect(openSelect.ui);
+        }, true);
+        // Escape dentro de un modal cierra antes el desplegable que el modal.
+        document.addEventListener('cancel', event => { if (openSelect || Date.now() - selectEscapeAt < 300) { event.preventDefault(); closeCustomSelect({ focus: true }); } }, true);
+    }
+
+    // ===== Fase 2: subtareas y estimaciones, fragmentos, accesos y tokens de API =====
+    // Cada función depende de una migración: solo se muestra cuando el servidor dice que está lista.
+    const feature = name => Boolean(state.features?.[name]);
+    function applyFeatureVisibility() {
+        document.querySelectorAll('[data-feature]').forEach(node => { node.hidden = !feature(node.dataset.feature); });
+    }
+
+    async function copyText(text) {
+        try {
+            if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; }
+        } catch { /* se intenta el método antiguo */ }
+        const area = document.createElement('textarea');
+        area.value = text; area.setAttribute('readonly', ''); area.style.position = 'fixed'; area.style.opacity = '0';
+        document.body.append(area); area.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch { ok = false; }
+        area.remove();
+        return ok;
+    }
+
+    // ----- Subtareas y estimación -----
+    const checklistOf = task => (Array.isArray(task?.checklist) ? task.checklist : []).filter(item => item && String(item.text || '').trim());
+    function hoursLabel(minutes) {
+        const value = Number(minutes) || 0;
+        if (!value) return '';
+        const hours = value / 60;
+        return hours >= 1 ? `${Number.isInteger(hours) ? hours : hours.toFixed(1).replace('.', ',')} h` : `${value} min`;
+    }
+    function taskExtrasMarkup(task) {
+        const items = checklistOf(task);
+        const done = items.filter(item => item.done).length;
+        const parts = [];
+        if (items.length) parts.push(`<span class="task-chip${done === items.length ? ' is-complete' : ''}" title="Subtareas hechas">${icon('check')}${done}/${items.length}</span>`);
+        if (Number(task.estimated_minutes)) parts.push(`<span class="task-chip" title="Estimación">${icon('clock')}${escapeHTML(hoursLabel(task.estimated_minutes))}</span>`);
+        return parts.join('');
+    }
+    function checklistEditorRow(item = { text: '', done: false }) {
+        return `<div class="checklist-row"><input type="checkbox" data-check-done aria-label="Hecha"${item.done ? ' checked' : ''}><input type="text" data-check-text value="${escapeHTML(item.text || '')}" maxlength="200" placeholder="Un paso concreto" aria-label="Subtarea"><button class="icon-button" type="button" data-check-remove aria-label="Quitar subtarea"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>`;
+    }
+    function taskPlanningFields(item = {}) {
+        if (!feature('task_checklists')) return '';
+        const items = checklistOf(item);
+        const hours = Number(item.estimated_minutes) ? Math.round(Number(item.estimated_minutes) / 60 * 100) / 100 : '';
+        return `${textField('estimated_hours', 'Estimación', hours, { type: 'number', min: 0.25, max: 1600, step: 0.25, placeholder: 'Ej. 2,5', hint: 'en horas' })}
+            <div class="form-field is-wide checklist-field"><label>Subtareas <span>marca las que ya estén hechas</span></label>
+                <div class="checklist-editor" data-checklist-editor>${(items.length ? items : []).map(checklistEditorRow).join('')}</div>
+                <button class="text-button checklist-add" type="button" data-check-add>${icon('plus')}Añadir subtarea</button>
+            </div>`;
+    }
+    function readChecklistEditor(root = dom.entityForm) {
+        const editor = root.querySelector('[data-checklist-editor]');
+        if (!editor) return null;
+        return [...editor.querySelectorAll('.checklist-row')].map(row => ({ text: row.querySelector('[data-check-text]').value.trim(), done: row.querySelector('[data-check-done]').checked })).filter(item => item.text).slice(0, 50);
+    }
+    function addChecklistRow(after = null) {
+        const editor = dom.entityForm.querySelector('[data-checklist-editor]');
+        if (!editor) return;
+        if (editor.querySelectorAll('.checklist-row').length >= 50) { toast('Máximo 50 subtareas', 'Agrupa pasos parecidos o divide la tarea.', 'error'); return; }
+        const holder = document.createElement('div');
+        holder.innerHTML = checklistEditorRow();
+        const row = holder.firstElementChild;
+        if (after) after.after(row); else editor.append(row);
+        row.querySelector('[data-check-text]').focus();
+    }
+    async function toggleSubtask(taskId, index) {
+        const tasks = await getCollection('tasks');
+        const task = tasks.find(item => Number(item.id) === Number(taskId));
+        if (!task) return;
+        const items = checklistOf(task).map((item, position) => position === Number(index) ? { ...item, done: !item.done } : item);
+        try {
+            const payload = await api.patch(`tasks/${Number(taskId)}`, { checklist: items });
+            invalidate('tasks', 'attention');
+            const updated = payload.data || { ...task, checklist: items };
+            const cached = state.cache.get('tasks');
+            if (cached?.data) cached.data = cached.data.map(item => Number(item.id) === Number(taskId) ? updated : item);
+            if (dom.recordPreviewDialog?.open && state.recordPreview?.entity === 'task') await openRecordPreview('task', taskId, { quiet: true });
+            if (dom.projectPreviewDialog?.open) await openProjectPreview(state.projectPreview.id, { quiet: true });
+        } catch (error) { toast('No pudimos guardar la subtarea', error.message, 'error'); }
+    }
+    function taskChecklistSection(task) {
+        const items = checklistOf(task);
+        if (!feature('task_checklists') || !items.length) return '';
+        const done = items.filter(item => item.done).length;
+        return `<section class="record-preview-section"><header class="record-preview-section-head"><div><h3>Subtareas</h3><p>${done} de ${items.length} hechas</p></div></header><div class="progress-bar subtask-progress"><span style="--progress:${Math.round(done / items.length * 100)}%"></span></div><ul class="subtask-list">${items.map((item, index) => `<li><button class="subtask-toggle${item.done ? ' is-done' : ''}" type="button" data-subtask-toggle="${Number(task.id)}" data-index="${index}" aria-pressed="${item.done}"><span class="subtask-box" aria-hidden="true">${item.done ? icon('check') : ''}</span><span>${escapeHTML(item.text)}</span></button></li>`).join('')}</ul></section>`;
+    }
+    function taskTimeSection(task) {
+        if (!feature('task_checklists')) return '';
+        const tracked = cachedRows('time_entries').filter(entry => Number(entry.task_id) === Number(task.id)).reduce((sum, entry) => sum + elapsedMinutes(entry), 0);
+        const estimate = Number(task.estimated_minutes) || 0;
+        if (!estimate && !tracked) return '';
+        const rows = [['Estimación', estimate ? hoursLabel(estimate) : 'Sin estimar'], ['Registrado', tracked ? minutesLabel(tracked) : 'Sin registros']];
+        if (estimate) rows.push([tracked > estimate ? 'Desviación' : 'Restante', minutesLabel(Math.abs(estimate - tracked))]);
+        return previewMetaSection('Tiempo', rows);
+    }
+
+    // ----- Fragmentos de código -----
+    const SNIPPET_LANGUAGES = ['bash', 'sql', 'php', 'javascript', 'typescript', 'python', 'json', 'yaml', 'css', 'html', 'docker', 'nginx', 'texto'];
+    function snippetPreviewCode(content, lines = 8) {
+        const all = String(content || '').split('\n');
+        return `${escapeHTML(all.slice(0, lines).join('\n'))}${all.length > lines ? '\n…' : ''}`;
+    }
+    function snippetCard(item) {
+        return `<article class="snippet-card" data-record="snippet" data-id="${Number(item.id)}" data-record-preview="snippet">
+            <header><div class="snippet-meta">${item.language ? `<span class="snippet-lang">${escapeHTML(item.language)}</span>` : ''}<span>${escapeHTML(item.project_name || 'General')}</span></div>
+                <div class="snippet-actions"><button class="icon-button" type="button" data-copy-snippet="${Number(item.id)}" aria-label="Copiar ${escapeHTML(item.title)}" title="Copiar">${icon('copy')}</button><button class="icon-button card-menu-button" type="button" data-card-menu aria-label="Más acciones">${icon('more')}</button>
+                <div class="card-actions-menu" hidden><button type="button" data-edit="snippet" data-id="${Number(item.id)}">Editar</button><button class="danger" type="button" data-delete="snippet" data-id="${Number(item.id)}">Eliminar</button></div></div></header>
+            <h2>${escapeHTML(item.title)}</h2>
+            <pre class="snippet-code"><code>${snippetPreviewCode(item.content)}</code></pre>
+            ${asArray(item.tags).length ? `<footer class="snippet-tags">${asArray(item.tags).map(tag => `<span>#${escapeHTML(tag)}</span>`).join('')}</footer>` : ''}
+        </article>`;
+    }
+    function renderSnippets(items) {
+        const visible = filtered(items, 'snippets');
+        const content = !visible.length
+            ? (items.length ? noFilterResults('snippets') : emptyState('snippet', 'Guarda lo que tecleas una y otra vez', 'Comandos de despliegue, consultas SQL o configuraciones. Copiarlos será un clic.'))
+            : `<div class="snippet-grid">${visible.map(snippetCard).join('')}</div>`;
+        return `${pageHeading('Biblioteca de código', 'Fragmentos <em>a mano</em>.', `${countLabel(items.length, 'fragmento', 'fragmentos')}. Sin claves ni contraseñas: guarda solo dónde están.`, 'snippet')}
+            ${collectionToolbar('snippets', visible.length)}${content}`;
+    }
+    function snippetFields(item, projects, tagCatalog) {
+        return `<div class="form-grid">
+            <aside class="form-security-note is-wide" role="note">${icon('alert')}<span><strong>Sin secretos.</strong> Si el fragmento necesita una clave, escribe una variable (<code>$API_KEY</code>) y guarda la clave en tu gestor de contraseñas.</span></aside>
+            ${textField('title', 'Nombre', item.title, { placeholder: 'Ej. Desplegar en producción', required: true, wide: true })}
+            ${selectField('language', 'Lenguaje', item.language || '', SNIPPET_LANGUAGES.map(language => [language, language]), { blank: 'Sin especificar' })}
+            ${selectField('project_id', 'Proyecto', item.project_id, projects.map(project => [project.id, project.name]), { blank: 'General' })}
+            <div class="form-field is-wide"><label for="field-content">Código</label><textarea class="code-input" id="field-content" name="content" required spellcheck="false" placeholder="git pull origin main&#10;composer install --no-dev">${escapeHTML(item.content ?? '')}</textarea></div>
+            ${tagsField(item.tags, tagCatalog, { placeholder: 'deploy, sql, docker' })}
+        </div>`;
+    }
+    function snippetPreviewSection(item) {
+        return `<section class="record-preview-section"><header class="record-preview-section-head"><div><h3>Código</h3>${item.language ? `<p>${escapeHTML(item.language)}</p>` : ''}</div><button class="button button-small" type="button" data-copy-snippet="${Number(item.id)}">${icon('copy')}Copiar</button></header><pre class="snippet-code is-full"><code>${escapeHTML(item.content || '')}</code></pre></section>`;
+    }
+    function projectSnippetsSection(project, snippets) {
+        if (!feature('snippets')) return '';
+        return `<section class="project-detail-section" aria-labelledby="project-snippets-title"><header><div><h3 id="project-snippets-title">Fragmentos</h3><p>Comandos y consultas de este proyecto.</p></div><button class="button button-small" type="button" data-create="snippet" data-prefill-project="${Number(project.id)}">${icon('plus')}Nuevo fragmento</button></header>${snippets.length ? `<div class="project-snippets">${snippets.map(item => `<div class="project-snippet"><button class="project-snippet-copy" type="button" data-record-preview="snippet" data-id="${Number(item.id)}"><strong>${escapeHTML(item.title)}</strong><code>${escapeHTML(String(item.content || '').split('\n')[0])}</code></button>${item.language ? `<span class="snippet-lang">${escapeHTML(item.language)}</span>` : ''}<button class="icon-button" type="button" data-copy-snippet="${Number(item.id)}" aria-label="Copiar ${escapeHTML(item.title)}" title="Copiar">${icon('copy')}</button></div>`).join('')}</div>` : '<div class="preview-inline-empty">Todavía no hay fragmentos en este proyecto.</div>'}</section>`;
+    }
+    async function copySnippet(id, button) {
+        let snippet = cachedRows('snippets').find(item => Number(item.id) === Number(id))
+            || (state.projectPreview.data?.snippets || []).find(item => Number(item.id) === Number(id))
+            || (state.recordPreview?.record && Number(state.recordPreview.record.id) === Number(id) ? state.recordPreview.record : null);
+        if (!snippet) { try { snippet = (await getCollection('snippets')).find(item => Number(item.id) === Number(id)); } catch { snippet = null; } }
+        if (!snippet) return;
+        const ok = await copyText(String(snippet.content || ''));
+        if (ok && button) { button.classList.add('is-copied'); setTimeout(() => button.classList.remove('is-copied'), 1400); }
+        toast(ok ? 'Copiado' : 'No pudimos copiarlo', ok ? snippet.title : 'Selecciona el texto y cópialo a mano.', ok ? 'success' : 'error');
+    }
+
+    // ----- Accesos: dónde está cada credencial -----
+    function projectAccessSection(resources) {
+        if (!feature('credential_refs')) return '';
+        const withRef = resources.filter(item => String(item.credential_ref || '').trim());
+        if (!withRef.length) return '';
+        return `<section class="project-related-section project-access"><header><h3>Accesos</h3><span>${withRef.length}</span></header><div>${withRef.map(item => `<button type="button" data-record-preview="resource" data-id="${Number(item.id)}"><span>${escapeHTML(item.name)}</span><strong>${icon('key')}${escapeHTML(item.credential_ref)}</strong></button>`).join('')}</div></section>`;
+    }
+
+    // ----- Tokens de API (Configuración) -----
+    function apiTokensSection() {
+        if (!feature('api_tokens') || state.demoMode) return '';
+        return `<section class="settings-section panel panel-padded settings-tokens" aria-labelledby="tokens-title"><header><span>${icon('key')}</span><div><h2 id="tokens-title">Tokens de API</h2><p>Para usar CodePanel desde la terminal, scripts o tu editor. No sirven para cambiar la cuenta ni para compartir.</p></div></header>
+            <form class="token-form" data-token-form>
+                <div class="form-field"><label for="token-name">Nombre</label><input id="token-name" name="name" maxlength="80" required placeholder="Ej. Terminal del portátil"></div>
+                <div class="form-field"><label for="token-scope">Permisos</label><select id="token-scope" name="scope"><option value="read">Solo lectura</option><option value="write">Lectura y escritura</option></select></div>
+                <div class="form-field"><label for="token-expiry">Caduca</label><select id="token-expiry" name="expires_in_days"><option value="90">En 90 días</option><option value="30">En 30 días</option><option value="365">En un año</option><option value="">Nunca</option></select></div>
+                <button class="button button-primary" type="submit">Crear token</button>
+            </form>
+            <div data-token-created></div>
+            <div class="token-list" data-token-list><p class="project-sheet-empty">Cargando tokens…</p></div>
+        </section>`;
+    }
+    function tokenUsageExample(token) {
+        const endpoint = new URL(`${API_BASE}/tasks`, location.href).href;
+        return `curl -H "Authorization: Bearer ${token}" \\\n  "${endpoint}?status=todo"\n\ncurl -X POST -H "Authorization: Bearer ${token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"title":"Revisar los logs"}' \\\n  "${endpoint}"`;
+    }
+    async function loadApiTokens() {
+        const list = document.querySelector('[data-token-list]');
+        if (!list) return;
+        try {
+            const tokens = (await api.get('api-tokens')).data || [];
+            list.innerHTML = tokens.length ? tokens.map(token => `<div class="token-row"><div><strong>${escapeHTML(token.name)}</strong><small><code>${escapeHTML(token.token_prefix)}…</code> · ${token.scope === 'write' ? 'Lectura y escritura' : 'Solo lectura'} · ${token.last_used_at ? `usado ${escapeHTML(shortDate(token.last_used_at))}` : 'sin usar'} · ${token.expired ? '<span class="token-expired">caducado</span>' : token.expires_at ? `caduca ${escapeHTML(shortDate(token.expires_at))}` : 'sin caducidad'}</small></div><button class="button button-small" type="button" data-token-revoke="${Number(token.id)}" data-token-name="${escapeHTML(token.name)}">Revocar</button></div>`).join('')
+                : '<p class="project-sheet-empty">Todavía no has creado ningún token.</p>';
+        } catch (error) { list.innerHTML = `<p class="project-sheet-empty">${escapeHTML(error.message || 'No pudimos cargar los tokens.')}</p>`; }
+    }
+    async function createApiToken(form) {
+        const button = form.querySelector('[type="submit"]');
+        const body = Object.fromEntries(new FormData(form).entries());
+        if (!String(body.name || '').trim()) { form.querySelector('[name="name"]').focus(); return; }
+        body.expires_in_days = body.expires_in_days ? Number(body.expires_in_days) : null;
+        button.disabled = true;
+        try {
+            const payload = await api.post('api-tokens', body);
+            const token = payload.data?.token || '';
+            form.reset();
+            document.querySelector('[data-token-created]').innerHTML = `<div class="token-created" role="status"><strong>Copia el token ahora: no se volverá a mostrar.</strong><div class="token-value"><input type="text" readonly value="${escapeHTML(token)}" aria-label="Token nuevo" spellcheck="false"><button class="button button-small" type="button" data-copy-value="${escapeHTML(token)}">${icon('copy')}Copiar</button></div><p>Ejemplos de uso:</p><pre class="snippet-code is-full"><code>${escapeHTML(tokenUsageExample(token))}</code></pre></div>`;
+            document.querySelector('.token-value input')?.select();
+            await loadApiTokens();
+        } catch (error) { toast('No pudimos crear el token', error.message, 'error'); }
+        finally { button.disabled = false; }
+    }
+    async function revokeApiToken(id, name) {
+        if (!await confirmAction(`¿Revocar «${name}»?`, 'Los scripts que lo usen dejarán de funcionar al momento. No se puede deshacer.', 'Sí, revocar')) return;
+        try { await api.delete(`api-tokens/${Number(id)}`); toast('Token revocado', name); await loadApiTokens(); }
+        catch (error) { toast('No pudimos revocarlo', error.message, 'error'); }
+    }
+
+    function countLabel(count, one, many) { const n = Number(count) || 0; return `${n} ${n === 1 ? one : many}`; }
+    const FEMININE_ENTITIES = new Set(['idea','task','devlog','lead','release','weekly_review','tag']);
+    function newLabel(entity) { return `${FEMININE_ENTITIES.has(entity) ? 'Nueva' : 'Nuevo'} ${ENTITY_NAMES[entity]}`; }
+
     function pageHeading(eyebrow, title, copy, entity, secondary = '') {
-        return `<header class="page-heading"><div class="page-heading-copy"><span class="eyebrow">${escapeHTML(eyebrow)}</span><h1>${title}</h1><p>${escapeHTML(copy)}</p></div><div class="heading-actions">${secondary}<button class="button button-primary" type="button" data-create="${entity}"><span aria-hidden="true">＋</span> Nuevo ${ENTITY_NAMES[entity]}</button></div></header>`;
+        return `<header class="page-heading"><div class="page-heading-copy"><span class="eyebrow">${escapeHTML(eyebrow)}</span><h1>${title}</h1><p>${escapeHTML(copy)}</p></div><div class="heading-actions">${secondary}<button class="button button-primary" type="button" data-create="${entity}">${icon('plus')}${newLabel(entity)}</button></div></header>`;
     }
 
     function statusBadge(status) { return `<span class="status-badge status-${escapeHTML(status)}">${escapeHTML(STATUS[status] || status || 'Sin estado')}</span>`; }
@@ -415,8 +1240,8 @@
         const done = task.status === 'done';
         return `<article class="task-row${done ? ' is-done' : ''}" data-id="${Number(task.id)}" data-record-preview="task">
             <button class="task-check${done ? ' is-done' : ''}" type="button" data-task-toggle="${Number(task.id)}" aria-label="${done ? 'Reabrir' : 'Completar'} ${escapeHTML(task.title)}">${done ? icon('check') : ''}</button>
-            <div><h3><button class="task-title-button" type="button" data-record-preview="task" data-id="${Number(task.id)}">${escapeHTML(task.title || 'Tarea sin título')}</button></h3>${compact ? `<p>${escapeHTML(task.project_name || 'Tarea independiente')}</p>` : `<div class="task-meta"><span>${escapeHTML(task.project_name || 'Sin proyecto')}</span><span>${escapeHTML(PRIORITY[task.priority] || 'Media')}</span></div>`}</div>
-            ${dueMarkup(task.due_date)}
+            <div><h3><button class="task-title-button" type="button" data-record-preview="task" data-id="${Number(task.id)}">${escapeHTML(task.title || 'Tarea sin título')}</button></h3>${compact ? `<p>${escapeHTML(task.project_name || 'Tarea independiente')}</p>` : `<div class="task-meta"><span>${escapeHTML(task.project_name || 'Sin proyecto')}</span><span>${escapeHTML(PRIORITY[task.priority] || 'Media')}</span>${taskExtrasMarkup(task) ? `<span class="task-meta-chips">${taskExtrasMarkup(task)}</span>` : ''}</div>`}</div>
+            <div class="task-row-end">${!done ? `<button class="icon-button task-timer-button" type="button" data-task-timer="${Number(task.id)}" aria-label="Empezar temporizador para ${escapeHTML(task.title || 'la tarea')}" title="Empezar temporizador">${icon('clock')}</button>` : ''}${dueMarkup(task.due_date)}</div>
         </article>`;
     }
 
@@ -448,13 +1273,12 @@
             if (request !== state.requestId || state.route !== 'dashboard') return;
             const orderedProjects = sortProjects(projects);
             const focus = orderedProjects.find(project => project.status === 'active') || orderedProjects[0];
-            const name = String(state.user?.name || 'creador').split(' ')[0];
-            const hour = Number(new Intl.DateTimeFormat('en-US',{hour:'2-digit',hourCycle:'h23',timeZone:state.settings?.timezone||undefined}).formatToParts(new Date()).find(part=>part.type==='hour')?.value || new Date().getHours());
-            const greeting = hour < 12 ? 'Buen día' : hour < 19 ? 'Buenas tardes' : 'Buenas noches';
             const date = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long', timeZone:state.settings?.timezone||undefined }).format(new Date());
             const widgetOrder = sanitizeWidgetOrder(state.settings?.dashboard_widgets);
             const upcomingReminders = reminders.filter(item => item.status === 'pending').sort((a,b) => String(a.due_at).localeCompare(String(b.due_at))).slice(0, 5);
             const week = weekBounds(new Date());
+            const openTasks = Number(stats.pending_tasks ?? 0);
+            const todaySummary = `${openTasks === 1 ? '1 tarea abierta' : `${openTasks} tareas abiertas`} y ${upcomingReminders.length === 1 ? '1 recordatorio próximo' : `${upcomingReminders.length} recordatorios próximos`}${stats.overdue_tasks ? `; ${stats.overdue_tasks} ${Number(stats.overdue_tasks) === 1 ? 'necesita' : 'necesitan'} atención.` : '.'}`;
             const weekMinutes = timeEntries.filter(item => item.work_date >= week.start && item.work_date <= week.end).reduce((sum,item) => sum + elapsedMinutes(item), 0);
             const widgets = {
                 overview: `<div class="metric-grid dashboard-widget is-wide" data-dashboard-widget="overview">
@@ -463,25 +1287,28 @@
                     ${metricCard('Ideas guardadas', stats.ideas ?? 0, 'Tu semillero personal', 'bulb')}
                     ${metricCard('Relaciones activas', (stats.active_clients ?? 0) + (stats.open_leads ?? 0), `${stats.open_leads ?? 0} oportunidades abiertas`, 'users')}
                 </div>`,
-                projects: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Proyectos en foco</h2><p>Fijados, activos y recientes</p></div><button class="text-button" type="button" data-nav-button="projects">Ver todos →</button></div>${focus ? focusProject(focus) : '<div class="inline-empty">Todavía no hay un proyecto activo.</div>'}<div class="project-rows widget-project-rows">${orderedProjects.filter(item => !focus || Number(item.id) !== Number(focus.id)).slice(0, 3).map(projectRow).join('')}</div></section>`,
-                tasks: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Próximas tareas</h2><p>Pequeños pasos que mueven todo</p></div><button class="text-button" type="button" data-create="task">＋</button></div><div class="task-list">${tasks.length ? tasks.slice(0, 5).map(task => taskRow(task, true)).join('') : '<div class="inline-empty">Tu lista está despejada.</div>'}</div></section>`,
-                reminders: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Recordatorios próximos</h2><p>Lo que no conviene dejar pasar</p></div><button class="text-button" type="button" data-nav-button="reminders">Ver centro →</button></div><div class="compact-reminders">${upcomingReminders.length ? upcomingReminders.map(reminderCompact).join('') : '<div class="inline-empty">No hay alertas pendientes.</div>'}</div></section>`,
-                time_tracking: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Tiempo de esta semana</h2><p>${escapeHTML(formatDate(week.start))} al ${escapeHTML(formatDate(week.end))}</p></div><button class="text-button" type="button" data-nav-button="time">Abrir control →</button></div><div class="widget-time-value">${escapeHTML(minutesLabel(weekMinutes))}</div><p class="muted-copy">${timeEntries.filter(item => item.work_date >= week.start && item.work_date <= week.end).length} registros de trabajo.</p></section>`,
-                profitability: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Rentabilidad</h2><p>Ingresos menos costos registrados</p></div><button class="text-button" type="button" data-nav-button="profitability">Ver detalle →</button></div>${profitabilityWidget(profitability)}</section>`,
-                calendar: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Agenda próxima</h2><p>Fechas que se acercan</p></div><button class="text-button" type="button" data-nav-button="calendar">Abrir calendario →</button></div><div class="compact-reminders">${upcomingReminders.length ? upcomingReminders.slice(0,4).map(reminderCompact).join('') : '<div class="inline-empty">La agenda está despejada.</div>'}</div></section>`,
-                weekly_review: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Revisión semanal</h2><p>Aprender del ritmo de trabajo</p></div><button class="text-button" type="button" data-nav-button="weekly">Revisar semana →</button></div>${weeklyReviews.length ? `<strong class="review-widget-score">${clamp(weeklyReviews[0].rating,1,5)}/5</strong><p class="muted-copy">${escapeHTML(weeklyReviews[0].wins || 'Revisión guardada sin logros destacados.')}</p>` : '<div class="inline-empty">Todavía no cerraste esta semana.</div>'}</section>`,
-                budgets: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Presupuestos y cobros</h2><p>Saldos separados por moneda</p></div><button class="text-button" type="button" data-nav-button="budgets">Abrir finanzas →</button></div><div class="finance-values widget-finance">${groupedMoney(budgets, 'balance')}</div></section>`,
-                resources: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Infraestructura</h2><p>Recursos que necesitan atención</p></div><button class="text-button" type="button" data-nav-button="resources">Ver inventario →</button></div><div class="widget-time-value">${resources.filter(item => item.status === 'attention' || (daysUntil(item.renewal_date) !== null && daysUntil(item.renewal_date) <= 30)).length}</div><p class="muted-copy">alertas entre estado y renovaciones próximas.</p></section>`,
+                projects: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Proyectos en foco</h2><p>Fijados, activos y recientes</p></div><button class="text-button" type="button" data-nav-button="projects">Ver todos${icon('chevron')}</button></div>${focus ? focusProject(focus) : '<div class="inline-empty">Todavía no hay un proyecto activo.</div>'}<div class="project-rows widget-project-rows">${orderedProjects.filter(item => !focus || Number(item.id) !== Number(focus.id)).slice(0, 3).map(projectRow).join('')}</div></section>`,
+                tasks: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Próximas tareas</h2><p>Pequeños pasos que mueven todo</p></div><button class="text-button" type="button" data-create="task" aria-label="Nueva tarea">${icon('plus')}</button></div><div class="task-list">${tasks.length ? tasks.slice(0, 5).map(task => taskRow(task, true)).join('') : '<div class="inline-empty">Tu lista está despejada.</div>'}</div></section>`,
+                reminders: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Recordatorios próximos</h2><p>Lo que no conviene dejar pasar</p></div><button class="text-button" type="button" data-nav-button="reminders">Ver centro${icon('chevron')}</button></div><div class="compact-reminders">${upcomingReminders.length ? upcomingReminders.map(reminderCompact).join('') : '<div class="inline-empty">No hay alertas pendientes.</div>'}</div></section>`,
+                time_tracking: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Tiempo de esta semana</h2><p>${escapeHTML(shortRange(week.start, week.end))}</p></div><button class="text-button" type="button" data-nav-button="time">Abrir control${icon('chevron')}</button></div><div class="widget-time-value">${escapeHTML(minutesLabel(weekMinutes))}</div><p class="muted-copy">${countLabel(timeEntries.filter(item => item.work_date >= week.start && item.work_date <= week.end).length,'registro','registros')} de trabajo.</p></section>`,
+                profitability: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Rentabilidad</h2><p>Ingresos menos costos registrados</p></div><button class="text-button" type="button" data-nav-button="profitability">Ver detalle${icon('chevron')}</button></div>${profitabilityWidget(profitability)}</section>`,
+                calendar: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Agenda próxima</h2><p>Fechas que se acercan</p></div><button class="text-button" type="button" data-nav-button="calendar">Abrir calendario${icon('chevron')}</button></div><div class="compact-reminders">${upcomingReminders.length ? upcomingReminders.slice(0,4).map(reminderCompact).join('') : '<div class="inline-empty">La agenda está despejada.</div>'}</div></section>`,
+                weekly_review: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Revisión semanal</h2><p>Aprender del ritmo de trabajo</p></div><button class="text-button" type="button" data-nav-button="weekly">Revisar semana${icon('chevron')}</button></div>${weeklyReviews.length ? `<strong class="review-widget-score">${clamp(weeklyReviews[0].rating,1,5)}/5</strong><p class="muted-copy">${escapeHTML(weeklyReviews[0].wins || 'Revisión guardada sin logros destacados.')}</p>` : '<div class="inline-empty">Todavía no has cerrado esta semana.</div>'}</section>`,
+                budgets: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Presupuestos y cobros</h2><p>Saldos separados por moneda</p></div><button class="text-button" type="button" data-nav-button="budgets">Abrir finanzas${icon('chevron')}</button></div><div class="finance-values widget-finance">${groupedMoney(budgets, 'balance')}</div></section>`,
+                resources: `<section class="panel panel-padded dashboard-widget"><div class="panel-heading"><div><h2>Infraestructura</h2><p>Recursos que necesitan atención</p></div><button class="text-button" type="button" data-nav-button="resources">Ver inventario${icon('chevron')}</button></div><div class="widget-time-value">${resources.filter(item => item.status === 'attention' || (daysUntil(item.renewal_date) !== null && daysUntil(item.renewal_date) <= 30)).length}</div><p class="muted-copy">alertas entre estado y renovaciones próximas.</p></section>`,
             };
 
             dom.view.innerHTML = `
                 <header class="page-heading">
-                    <div class="page-heading-copy"><span class="eyebrow">Tu estudio de hoy</span><h1>${greeting}, <em>${escapeHTML(name)}</em>.</h1><p>Acá está lo importante: lo que avanza, lo que necesita atención y las ideas que no conviene perder.</p></div>
-                    <div class="date-chip">${icon('calendar')}<span>${escapeHTML(date.charAt(0).toUpperCase() + date.slice(1))}</span></div>
+                    <div class="page-heading-copy"><span class="eyebrow">Tu estudio de hoy</span><h1>${escapeHTML(date.charAt(0).toUpperCase() + date.slice(1))}</h1><p>${escapeHTML(todaySummary)}</p></div>
                 </header>
                 ${state.demoMode ? `<div class="demo-banner"><span>Estás explorando datos de muestra</span><small>Todo lo que cambies se guarda solo durante esta sesión.</small></div>` : ''}
                 <div class="dashboard-widget-grid">${widgetOrder.map(key => widgets[key] || '').join('')}</div>`;
-            finishRender();
+            layoutDashboard();
+            const sameRoute = state.lastPaintedRoute === 'dashboard';
+            state.lastPaintedRoute = 'dashboard';
+            if (sameRoute && !state.quietRender) { state.quietRender = true; finishRender(); state.quietRender = false; }
+            else finishRender();
         } catch (error) { if (request === state.requestId) renderError(error); }
     }
 
@@ -510,18 +1337,19 @@
     function focusProject(project) {
         const color = safeColor(project.color);
         const tags = asArray(project.tech_stack);
-        return `<article class="focus-project" style="--coral:${color}"><div><div class="focus-kickers"><span class="focus-kicker">${escapeHTML(STATUS[project.status] || 'Proyecto')}</span>${projectTypeBadge(project, true)}${isProjectPinned(project) ? '<span class="focus-pinned">Fijado</span>' : ''}</div><h3>${escapeHTML(project.name)}</h3><p>${escapeHTML(project.description || 'Sin descripción todavía.')}</p><div class="focus-tags">${tags.slice(0, 4).map(tag => `<span>${escapeHTML(tag)}</span>`).join('')}</div><button class="text-button focus-action" type="button" data-project-preview="${Number(project.id)}">Abrir proyecto →</button></div><div class="progress-ring" style="--progress:${clamp(project.progress, 0, 100)}"><span>${clamp(project.progress, 0, 100)}%</span></div></article>`;
+        return `<article class="focus-project" style="--coral:${color}"><div><div class="focus-kickers"><span class="focus-kicker">${escapeHTML(STATUS[project.status] || 'Proyecto')}</span>${projectTypeBadge(project, true)}${isProjectPinned(project) ? '<span class="focus-pinned">Fijado</span>' : ''}</div><h3>${escapeHTML(project.name)}</h3><p>${escapeHTML(markdownPlain(project.description) || 'Sin descripción todavía.')}</p><div class="focus-tags">${tags.slice(0, 4).map(tag => `<span>${escapeHTML(tag)}</span>`).join('')}</div><button class="text-button focus-action" type="button" data-project-preview="${Number(project.id)}">Abrir proyecto${icon('chevron')}</button></div><div class="progress-ring" style="--progress:${clamp(project.progress, 0, 100)}"><span>${clamp(project.progress, 0, 100)}%</span></div></article>`;
     }
     function projectRow(project) {
         const color = safeColor(project.color);
         const typeLabel = projectType(project) === 'commercial' ? 'Comercial' : 'Personal';
         return `<article class="project-row" role="button" tabindex="0" aria-label="Abrir proyecto ${escapeHTML(typeLabel.toLowerCase())}: ${escapeHTML(project.name)}" data-project-preview="${Number(project.id)}"><span class="project-color" style="--project-color:${color}"></span><div><h3>${isProjectPinned(project) ? '<span class="row-pin" aria-label="Fijado">◆</span>' : ''}${escapeHTML(project.name)}</h3><p>${escapeHTML(STATUS[project.status] || '')}<span class="project-type-inline"> · ${escapeHTML(typeLabel)}</span></p></div><div class="mini-progress" style="--project-color:${color}"><span style="--progress:${clamp(project.progress, 0, 100)}%"></span></div><span class="row-percent">${clamp(project.progress, 0, 100)}%</span></article>`;
     }
-    function ideaPreview(idea) { return `<article class="idea-preview"><small>${escapeHTML(idea.category || STATUS[idea.status] || 'Idea')}</small><h3>${escapeHTML(idea.title)}</h3><p>${escapeHTML(idea.description || 'Una idea esperando más contexto.')}</p></article>`; }
+    function ideaPreview(idea) { return `<article class="idea-preview"><small>${escapeHTML(idea.category || STATUS[idea.status] || 'Idea')}</small><h3>${escapeHTML(idea.title)}</h3><p>${escapeHTML(markdownPlain(idea.description) || 'Una idea esperando más contexto.')}</p></article>`; }
     function followCard(lead, index) { const colors = ['var(--blue-wash)', 'var(--sage-wash)', 'var(--purple-wash)']; return `<article class="follow-card" role="button" tabindex="0" aria-label="Abrir oportunidad de ${escapeHTML(lead.name)}" data-record-preview="lead" data-id="${Number(lead.id)}"><span class="contact-initial" style="--avatar-color:${colors[index % colors.length]}">${initials(lead.name)}</span><div><strong>${escapeHTML(lead.name)}</strong><small>${escapeHTML(lead.company || 'Contacto independiente')}</small></div><span class="follow-date">${escapeHTML(dateDistance(lead.next_follow_up))}</span></article>`; }
 
     function finishRender() {
         dom.view.setAttribute('aria-busy', 'false');
+        if (state.quietRender) { dom.view.classList.remove('is-entering'); return; }
         clearTimeout(dom.view._animationTimer);
         dom.view.classList.remove('is-entering');
         // Reinicia la transición sin dejar un fill-mode activo en capturas,
@@ -537,7 +1365,23 @@
         dom.view._animationTimer = setTimeout(cleanup, 460);
     }
 
-    async function navigate(route, { force = false } = {}) {
+    // Tras guardar algo se repinta «en silencio»: sin esqueleto de carga, sin animación de entrada,
+    // sin volver arriba y devolviendo el foco al mismo control. Así no parece que la app se recargue.
+    async function refreshView() {
+        const scrollY = window.scrollY;
+        const active = document.activeElement;
+        const focusKey = active && dom.view.contains(active)
+            ? ['data-task-toggle', 'data-task-timer', 'data-task-status-select', 'data-kanban-status-select', 'data-reminder-status', 'data-edit', 'data-record-preview']
+                .map(name => active.hasAttribute(name) ? `[${name}="${CSS.escape(active.getAttribute(name))}"]${active.dataset.id ? `[data-id="${CSS.escape(active.dataset.id)}"]` : ''}` : '').find(Boolean)
+            : '';
+        state.quietRender = true;
+        try { await navigate(state.route, { force: true, quiet: true }); }
+        finally { state.quietRender = false; }
+        window.scrollTo({ top: scrollY, behavior: 'instant' });
+        if (focusKey) dom.view.querySelector(focusKey)?.focus({ preventScroll: true });
+    }
+
+    async function navigate(route, { force = false, quiet = false } = {}) {
         const clean = ROUTES.includes(route) ? route : 'dashboard';
         state.route = clean;
         if (location.hash !== `#${clean}`) history.replaceState(null, '', `#${clean}`);
@@ -551,9 +1395,10 @@
         dom.routeAnnouncer.textContent = `Página ${ROUTE_NAMES[clean]}`;
         document.title = `${ROUTE_NAMES[clean]} — CodePanel`;
         closeSidebar();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        if (clean === 'dashboard') return renderDashboard(force);
-        return renderCollectionPage(clean, force);
+        if (!quiet) window.scrollTo({ top: 0, behavior: 'smooth' });
+        const rendered = clean === 'dashboard' ? renderDashboard(force) : renderCollectionPage(clean, force);
+        Promise.resolve(rendered).finally(() => { refreshTimerPill(); });
+        return rendered;
     }
 
     async function boot() {
@@ -564,6 +1409,8 @@
             state.user = session.user || null;
             state.csrf = session.csrf_token || '';
             state.demoMode = Boolean(session.demo_mode);
+            state.features = session.features || {};
+            applyFeatureVisibility();
             applyRegistrationAvailability(session.registration_enabled !== false);
             applyDatabaseAvailability(session.database_available !== false);
             if (!session.authenticated || !state.user) {
@@ -688,12 +1535,17 @@
             projects: renderProjects, ideas: renderIdeas, tasks: renderTasks, devlogs: renderDevlogs,
             clients: renderClients, leads: renderLeads, budgets: renderBudgets, releases: renderReleases, resources: renderResources,
             reminders: renderReminders, time: renderTime, profitability: renderProfitability, calendar: renderCalendar,
-            weekly: renderWeeklyReviews, files: renderFiles, tags: renderTags, settings: renderSettings, 'dashboard-settings': renderDashboardSettings,
+            weekly: renderWeeklyReviews, files: renderFiles, tags: renderTags, settings: renderSettings, 'dashboard-settings': renderDashboardSettings, snippets: renderSnippets,
         };
         state.pageData[route] = data;
+        const sameRoute = state.lastPaintedRoute === route;
+        state.lastPaintedRoute = route;
         dom.view.innerHTML = painters[route](data);
-        finishRender();
+        // Solo se anima al entrar en una sección; filtrar, ordenar o guardar dentro de ella no.
+        if (sameRoute && !state.quietRender) { state.quietRender = true; finishRender(); state.quietRender = false; }
+        else finishRender();
         if (route === 'time') startTimerTicker(); else stopTimerTicker();
+        if (route === 'settings') loadApiTokens();
     }
 
     function filtered(items, route) {
@@ -722,6 +1574,7 @@
                 : route === 'time' ? [item.description, item.project_name, item.task_title, ...asArray(item.tags)]
                 : route === 'weekly' ? [item.wins, item.blockers, item.next_focus, ...asArray(item.tags)]
                 : route === 'files' ? [item.original_name, item.entity_type, item.entity_name, item.project_name, item.mime_type]
+                : route === 'snippets' ? [item.title, item.content, item.language, item.project_name, ...asArray(item.tags)]
                 : route === 'tags' ? [item.name, item.usage_count]
                 : [item.name, item.company, item.email, item.source, item.notes, ...asArray(item.tags)];
             return haystack.some(value => String(value || '').toLocaleLowerCase('es').includes(query));
@@ -735,7 +1588,7 @@
             <label class="filter-search">${icon('search')}<span class="sr-only">Buscar</span><input type="search" value="${escapeHTML(filters.search || '')}" placeholder="Buscar…" data-filter-search="${route}" autocomplete="off"></label>
             ${statuses.length ? `<label class="select-wrap"><span class="sr-only">Filtrar por ${route === 'devlogs' ? 'tipo' : 'estado'}</span><select data-filter-status="${route}"><option value="all">${route === 'devlogs' ? 'Todos los tipos' : 'Todos los estados'}</option>${statusOptions}</select></label>` : ''}
             <span class="result-count">${total} ${total === 1 ? 'resultado' : 'resultados'}</span><span class="toolbar-spacer"></span>
-            ${viewToggle ? `<div class="segmented" aria-label="Vista"><button class="${filters.view === 'grid' ? 'is-active' : ''}" type="button" data-project-view="grid" aria-label="Vista de tarjetas">${icon('grid')}</button><button class="${filters.view === 'board' ? 'is-active' : ''}" type="button" data-project-view="board" aria-label="Vista por etapas">${icon('columns')}</button></div>` : ''}
+            ${viewToggle && route === 'tasks' ? `<div class="segmented" aria-label="Vista"><button class="${filters.view !== 'board' ? 'is-active' : ''}" type="button" data-task-view="list" aria-label="Vista de lista" aria-pressed="${filters.view !== 'board'}">${icon('list')}</button><button class="${filters.view === 'board' ? 'is-active' : ''}" type="button" data-task-view="board" aria-label="Vista de tablero" aria-pressed="${filters.view === 'board'}">${icon('columns')}</button></div>` : viewToggle ? `<div class="segmented" aria-label="Vista"><button class="${filters.view === 'grid' ? 'is-active' : ''}" type="button" data-project-view="grid" aria-label="Vista de tarjetas">${icon('grid')}</button><button class="${filters.view === 'board' ? 'is-active' : ''}" type="button" data-project-view="board" aria-label="Vista por etapas">${icon('columns')}</button></div>` : ''}
         </div>`;
     }
 
@@ -778,7 +1631,7 @@
         const filters = state.filters.projects;
         const active = items.filter(item => item.status === 'active').length;
         const content = !visible.length
-            ? (items.length ? noFilterResults('projects') : emptyState('project', 'Tu primer proyecto empieza acá', 'Guardá el contexto, las fechas y el progreso sin perderte en planillas.'))
+            ? (items.length ? noFilterResults('projects') : emptyState('project', 'Tu primer proyecto empieza aquí', 'Guarda el contexto, las fechas y el progreso sin perderte en hojas de cálculo.'))
             : filters.view === 'board' ? projectBoard(visible) : `<div class="project-grid">${visible.map(projectCard).join('')}</div>`;
         return `${pageHeading('Tu cartera', 'Proyectos con <em>rumbo</em>.', `${active} en marcha de ${items.length} proyectos. Una mirada clara para decidir qué sigue.`, 'project')}
             ${projectFiltersToolbar(items, visible.length)}${content}`;
@@ -791,11 +1644,11 @@
         const due = project.due_date ? dateDistance(project.due_date) : 'Sin fecha límite';
         const footerMeta = isCommercial
             ? `<span>${icon('calendar')}${escapeHTML(due)}</span><span>${escapeHTML(project.client_name || 'Sin cliente')}</span>`
-            : `<span class="personal-project-note">${icon('spark')}Proyecto propio</span><span>${escapeHTML(PRIORITY[project.priority] || 'Prioridad media')}</span>`;
+            : `<span class="personal-project-note">${icon('user')}Proyecto propio</span><span>${escapeHTML(PRIORITY[project.priority] || 'Prioridad media')}</span>`;
         return `<article class="project-card${isProjectPinned(project) ? ' is-pinned' : ''}" style="--project-color:${color}" data-record="project" data-id="${Number(project.id)}" data-project-preview="${Number(project.id)}">
             <div class="card-topline"><div class="card-badges">${statusBadge(project.status)}${projectTypeBadge(project)}</div><div class="project-card-actions">${projectPinButton(project)}<button class="icon-button card-menu-button" type="button" data-card-menu aria-label="Opciones de ${escapeHTML(project.name)}">${icon('more')}</button></div></div>
             <div class="card-actions-menu" hidden><button type="button" data-edit="project" data-id="${Number(project.id)}">Editar</button><button type="button" data-duplicate="project" data-id="${Number(project.id)}">Duplicar</button><button class="danger" type="button" data-delete="project" data-id="${Number(project.id)}">Eliminar</button></div>
-            <button class="card-content-button" type="button" data-project-preview="${Number(project.id)}" aria-label="Abrir vista de ${escapeHTML(project.name)}"><h2>${escapeHTML(project.name)}</h2><p class="description">${escapeHTML(project.description || 'Este proyecto todavía no tiene una descripción.')}</p></button>
+            <button class="card-content-button" type="button" data-project-preview="${Number(project.id)}" aria-label="Abrir vista de ${escapeHTML(project.name)}"><h2>${escapeHTML(project.name)}</h2><p class="description">${escapeHTML(markdownPlain(project.description) || 'Este proyecto todavía no tiene una descripción.')}</p></button>
             <div class="tech-list">${tags.length ? tags.slice(0, 4).map(tag => `<span class="tag">${escapeHTML(tag)}</span>`).join('') : '<span class="tag">Sin stack definido</span>'}</div>
             <footer class="project-card-footer"><div class="progress-copy"><span>Progreso</span><strong>${clamp(project.progress,0,100)}%</strong></div><div class="progress-bar"><span style="--progress:${clamp(project.progress,0,100)}%"></span></div><div class="card-bottom">${footerMeta}</div></footer>
         </article>`;
@@ -807,7 +1660,7 @@
             ['on_hold', 'En pausa', 'var(--yellow)'], ['completed', 'Terminados', 'var(--sage)'],
             ['archived', 'Archivados', 'var(--muted)'],
         ];
-        return `<div class="kanban-help" role="note"><span>${icon('drag')}</span><p><strong>Mové el trabajo a medida que avanza.</strong> Arrastrá una tarjeta entre columnas o usá su selector de estado con teclado y en pantallas táctiles.</p></div><div class="kanban-board">${columns.map(([status,label,color]) => {
+        return `<div class="kanban-help" role="note"><span>${icon('drag')}</span><p><strong>Mueve el trabajo a medida que avanza.</strong> Arrastra una tarjeta entre columnas o usa su selector de estado con teclado y en pantallas táctiles.</p></div><div class="kanban-board">${columns.map(([status,label,color]) => {
             const projects = sortProjects(items.filter(item => item.status === status));
             return `<section class="kanban-column" data-kanban-status="${status}" style="--column-color:${color}" aria-label="${label}"><header class="kanban-header"><strong><i class="kanban-dot"></i>${label}</strong><span data-kanban-count>${projects.length}</span></header><div class="kanban-items" data-kanban-items>${projects.length ? projects.map(kanbanProject).join('') : '<div class="inline-empty" data-kanban-empty>Nada por aquí.</div>'}</div></section>`;
         }).join('')}</div>`;
@@ -820,7 +1673,7 @@
         const statuses = [['planned','Por empezar'],['active','En marcha'],['on_hold','En pausa'],['completed','Terminado'],['archived','Archivado']];
         return `<article class="kanban-card${isProjectPinned(project) ? ' is-pinned' : ''}${Number(state.kanban.savingId) === Number(project.id) ? ' is-saving' : ''}" draggable="true" aria-grabbed="false" data-kanban-project="${Number(project.id)}" data-project-preview="${Number(project.id)}" data-project-status="${escapeHTML(project.status)}" style="--project-color:${safeColor(project.color)}">
             <div class="kanban-card-kicker"><span class="kanban-drag-handle" aria-hidden="true">${icon('drag')}</span>${projectTypeBadge(project, true)}<span class="kanban-card-spacer"></span>${projectPinButton(project, true)}</div>
-            <button class="kanban-open" type="button" data-project-preview="${Number(project.id)}" aria-label="Abrir vista del proyecto ${escapeHTML(project.name)}"><h3>${escapeHTML(project.name)}</h3><p>${escapeHTML(project.description || 'Sin descripción')}</p></button>
+            <button class="kanban-open" type="button" data-project-preview="${Number(project.id)}" aria-label="Abrir vista del proyecto ${escapeHTML(project.name)}"><h3>${escapeHTML(project.name)}</h3><p>${escapeHTML(markdownPlain(project.description) || 'Sin descripción')}</p></button>
             <footer><small>${escapeHTML(meta)}</small><span class="kanban-progress" style="--progress:${clamp(project.progress,0,100)}">${clamp(project.progress,0,100)}%</span></footer>
             <div class="kanban-card-controls"><label><span>Estado</span><select data-kanban-status-select="${Number(project.id)}" aria-label="Cambiar estado de ${escapeHTML(project.name)}">${optionList(statuses,project.status)}</select></label><button class="text-button" type="button" data-edit="project" data-id="${Number(project.id)}">Editar</button></div>
         </article>`;
@@ -886,45 +1739,53 @@
             project.live_url ? ['Sitio publicado', project.live_url, 'link'] : null,
         ].filter(Boolean);
         const isCommercial = projectType(project) === 'commercial';
-        dom.projectPreviewContent.innerHTML = `<header class="project-preview-hero" style="--project-color:${color}">
-            <div class="project-preview-hero-copy"><div class="project-preview-kickers">${statusBadge(project.status)}${projectTypeBadge(project)}<span class="priority-badge priority-${escapeHTML(project.priority || 'medium')}">${escapeHTML(PRIORITY[project.priority] || 'Prioridad media')}</span></div><h2 id="project-preview-title">${escapeHTML(project.name || 'Proyecto')}</h2><p>${escapeHTML(project.description || 'Este proyecto todavía no tiene una descripción.')}</p></div>
-            <div class="project-preview-progress" style="--progress:${clamp(project.progress,0,100)}"><span>${clamp(project.progress,0,100)}%</span><small>avance</small></div>
-            <div class="project-preview-top-actions">${projectPinButton(project)}<button class="icon-button project-preview-close" type="button" data-project-preview-close aria-label="Cerrar vista del proyecto">×</button></div>
+        const progress = clamp(project.progress,0,100);
+        const dueLabel = project.due_date ? (() => { const distance = dateDistance(project.due_date); return /^\d/.test(distance) ? distance : `${shortDate(project.due_date)} · ${distance}`; })() : '';
+        const metaLine = [isCommercial ? (project.client_name || 'Sin cliente asignado') : 'Proyecto propio', dueLabel ? `Entrega ${dueLabel}` : '', project.updated_at ? `Actualizado ${shortDate(project.updated_at)}` : ''].filter(Boolean);
+        const facts = [
+            ['Modalidad', isCommercial ? 'Comercial' : 'Personal'],
+            ['Estado', STATUS[project.status] || 'Sin estado'],
+            ['Prioridad', PRIORITY[project.priority] || 'Media'],
+            [isCommercial ? 'Cliente' : 'Propósito', isCommercial ? (project.client_name || 'Sin cliente asignado') : 'Proyecto propio'],
+            ['Fecha objetivo', isCommercial ? (dueLabel || 'Sin fecha definida') : 'Sin fecha de entrega'],
+            ['Creado', formatDate(project.created_at)],
+        ];
+        dom.projectPreviewContent.innerHTML = `<header class="project-sheet-head" style="--project-color:${color}">
+            <div class="project-sheet-top">
+                <div class="project-preview-kickers">${statusBadge(project.status)}${projectTypeBadge(project)}<span class="priority-badge priority-${escapeHTML(project.priority || 'medium')}">${escapeHTML(PRIORITY[project.priority] || 'Prioridad media')}</span></div>
+                <div class="project-sheet-actions">${projectPinButton(project)}<button class="icon-button" type="button" data-project-preview-edit="${Number(project.id)}" aria-label="Editar proyecto"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg></button><button class="icon-button project-preview-close" type="button" data-project-preview-close aria-label="Cerrar vista del proyecto"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+            </div>
+            <h2 id="project-preview-title"><i class="project-sheet-dot" aria-hidden="true"></i>${escapeHTML(project.name || 'Proyecto')}</h2>
+            <p class="project-sheet-meta">${metaLine.map(item => `<span>${escapeHTML(item)}</span>`).join('')}</p>
+            <div class="project-sheet-progress" role="group" aria-label="Progreso del proyecto"><div><span>Progreso</span><strong>${progress} %</strong></div><div class="progress-bar"><span style="--progress:${progress}%"></span></div><small>${tasks.length ? `${completed} de ${countLabel(tasks.length,'tarea','tareas')} completadas` : 'Sin tareas asociadas todavía'}</small></div>
         </header>
         <div class="project-preview-body">
-            <section class="project-preview-summary" aria-label="Información del proyecto">
-                <dl class="project-preview-metadata">
-                    <div><dt>Modalidad</dt><dd>${isCommercial ? 'Proyecto comercial' : 'Proyecto personal'}</dd></div>
-                    <div><dt>Prioridad</dt><dd>${escapeHTML(PRIORITY[project.priority] || 'Media')}</dd></div>
-                    <div><dt>${isCommercial ? 'Cliente' : 'Propósito'}</dt><dd>${escapeHTML(isCommercial ? (project.client_name || 'Sin cliente asignado') : 'Proyecto propio')}</dd></div>
-                    <div><dt>${isCommercial ? 'Fecha objetivo' : 'Planificación'}</dt><dd>${escapeHTML(isCommercial ? (project.due_date ? `${formatDate(project.due_date)} · ${dateDistance(project.due_date)}` : 'Sin fecha definida') : 'Sin fecha de entrega')}</dd></div>
-                    <div><dt>Creado</dt><dd>${escapeHTML(formatDate(project.created_at))}</dd></div>
-                    <div><dt>Último cambio</dt><dd>${escapeHTML(formatDate(project.updated_at))}</dd></div>
-                </dl>
-                ${links.length ? `<nav class="project-preview-links" aria-label="Enlaces del proyecto">${links.map(([label,url,iconName]) => `<a href="${escapeHTML(safeUrl(url))}" target="_blank" rel="noopener">${icon(iconName)}<span>${escapeHTML(label)}</span>${icon('arrow')}</a>`).join('')}</nav>` : '<p class="project-preview-no-links">Todavía no hay repositorio ni sitio publicado.</p>'}
-                <div class="project-preview-taxonomy"><div><strong>Tecnologías y lenguajes</strong><div class="tech-list">${tech.length ? tech.map(item => `<span class="tag">${escapeHTML(item)}</span>`).join('') : '<span class="muted-copy">Sin stack definido</span>'}</div></div><div><strong>Etiquetas</strong><div class="tag-cloud">${tags.length ? tags.map(item => `<span>#${escapeHTML(item)}</span>`).join('') : '<span class="muted-copy">Sin etiquetas</span>'}</div></div></div>
-            </section>
-
             <div class="project-preview-grid">
-                <main class="project-preview-main">
-                    ${projectShareSection(project, publicShare)}
+                <div class="project-preview-main">
+                    <section class="project-detail-section" aria-labelledby="project-description-title"><header><div><h3 id="project-description-title">Descripción</h3></div></header>${project.description ? `<div class="project-sheet-description" tabindex="0">${markdownHTML(project.description)}</div>` : '<div class="preview-inline-empty">Este proyecto todavía no tiene una descripción. <button class="text-button" type="button" data-project-preview-edit="' + Number(project.id) + '">Añadir descripción</button></div>'}</section>
+                    <section class="project-detail-section" aria-labelledby="project-tasks-title"><header><div><h3 id="project-tasks-title">Tareas</h3><p>${tasks.length ? `${completed} de ${countLabel(tasks.length,'tarea','tareas')} completadas` : 'Las próximas acciones de este proyecto'}</p></div><button class="button button-small" type="button" data-create="task" data-prefill-project="${Number(project.id)}">${icon('plus')}Nueva tarea</button></header><div class="project-preview-tasks">${tasks.length ? tasks.map(projectPreviewTask).join('') : '<div class="preview-inline-empty">Todavía no hay tareas para este proyecto.</div>'}</div></section>
+                    <section class="project-detail-section" aria-labelledby="project-timeline-title"><header><div><h3 id="project-timeline-title">Línea de tiempo</h3><p>Avances, decisiones, bloqueos y aprendizajes.</p></div><button class="button button-small" type="button" data-create="devlog" data-prefill-project="${Number(project.id)}">${icon('plus')}Registrar cambio</button></header><div class="project-preview-timeline">${timeline.length ? timeline.map(projectTimelineEntry).join('') : '<div class="preview-inline-empty">Registra el primer cambio para empezar la historia del proyecto.</div>'}</div></section>
+                    ${projectSnippetsSection(project, Array.isArray(overview.snippets) ? overview.snippets : [])}
                     ${projectPhotoSection(project, photos)}
-                    <section class="project-detail-section" aria-labelledby="project-tasks-title"><header><div><span class="eyebrow">Próximas acciones</span><h3 id="project-tasks-title">Tareas asociadas</h3><p>${completed} de ${tasks.length} completadas.</p></div><button class="button button-secondary button-small" type="button" data-create="task" data-prefill-project="${Number(project.id)}">＋ Nueva tarea</button></header><div class="project-preview-tasks">${tasks.length ? tasks.map(projectPreviewTask).join('') : '<div class="preview-inline-empty">Todavía no hay tareas para este proyecto.</div>'}</div></section>
-                    <section class="project-detail-section" aria-labelledby="project-timeline-title"><header><div><span class="eyebrow">Memoria del proyecto</span><h3 id="project-timeline-title">Línea de tiempo</h3><p>Avances, decisiones, bloqueos y aprendizajes.</p></div><button class="button button-secondary button-small" type="button" data-create="devlog" data-prefill-project="${Number(project.id)}">＋ Registrar cambio</button></header><div class="project-preview-timeline">${timeline.length ? timeline.map(projectTimelineEntry).join('') : '<div class="preview-inline-empty">Registrá el primer cambio para empezar la historia del proyecto.</div>'}</div></section>
                     ${documents.length ? projectDocumentSection(documents) : ''}
-                </main>
-                <aside class="project-preview-aside">
-                    ${projectRelatedSection('Entregas y versiones', releases, item => `<button type="button" data-record-preview="release" data-id="${Number(item.id)}"><span>${escapeHTML(item.version || RELEASE_KINDS[item.kind] || 'Entrega')}</span><strong>${escapeHTML(item.title || 'Sin título')}</strong><small>${escapeHTML(item.release_date ? formatDate(item.release_date) : STATUS[item.status] || 'Sin fecha')}</small></button>`)}
+                    ${projectShareSection(project, publicShare)}
+                </div>
+                <aside class="project-preview-aside" aria-label="Información del proyecto">
+                    <section class="project-related-section project-sheet-facts"><header><h3>Datos</h3></header><dl>${facts.map(([label,value]) => `<div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(value)}</dd></div>`).join('')}</dl></section>
+                    <section class="project-related-section"><header><h3>Enlaces</h3></header>${links.length ? `<nav class="project-preview-links" aria-label="Enlaces del proyecto">${links.map(([label,url,iconName]) => `<a href="${escapeHTML(safeUrl(url))}" target="_blank" rel="noopener">${icon(iconName)}<span>${escapeHTML(label)}</span>${icon('chevron')}</a>`).join('')}</nav>` : '<p class="project-sheet-empty">Sin repositorio ni sitio publicado.</p>'}</section>
+                    <section class="project-related-section"><header><h3>Tecnologías</h3></header>${tech.length ? `<div class="tech-list">${tech.map(item => `<span class="tag">${escapeHTML(item)}</span>`).join('')}</div>` : '<p class="project-sheet-empty">Sin stack definido.</p>'}${tags.length ? `<div class="tag-cloud">${tags.map(item => `<span>#${escapeHTML(item)}</span>`).join('')}</div>` : ''}</section>
+                    ${projectAccessSection(resources)}
+                    ${projectRelatedSection('Entregas y versiones', releases, item => `<button type="button" data-record-preview="release" data-id="${Number(item.id)}"><span>${escapeHTML(item.version || RELEASE_KINDS[item.kind] || 'Entrega')}</span><strong>${escapeHTML(item.title || 'Sin título')}</strong><small>${escapeHTML(item.release_date ? shortDate(item.release_date) : STATUS[item.status] || 'Sin fecha')}</small></button>`)}
                     ${projectRelatedSection('Recursos', resources, item => `<button type="button" data-record-preview="resource" data-id="${Number(item.id)}"><span>${escapeHTML(RESOURCE_TYPES[item.resource_type] || 'Recurso')}</span><strong>${escapeHTML(item.name || 'Sin nombre')}</strong><small>${escapeHTML(item.provider || ENVIRONMENTS[item.environment] || 'Sin proveedor')}</small></button>`)}
-                    ${projectRelatedSection('Presupuestos', budgets, item => `<button type="button" data-record-preview="budget" data-id="${Number(item.id)}"><span>${escapeHTML(STATUS[item.status] || 'Presupuesto')}</span><strong>${escapeHTML(item.title || 'Sin título')}</strong><small>${escapeHTML(formatMoney(item.amount,item.currency))}</small></button>`)}
+                    ${projectRelatedSection('Presupuestos', budgets, item => `<button type="button" data-record-preview="budget" data-id="${Number(item.id)}"><span>${escapeHTML(STATUS[item.status] || 'Presupuesto')}</span><strong>${escapeHTML(item.title || 'Sin título')}</strong><small>${moneyHTML(item.amount,item.currency)}</small></button>`)}
                 </aside>
             </div>
         </div>
-        <footer class="project-preview-footer"><div><small>Proyecto #${Number(project.id)}</small><span>${isProjectPinned(project) ? 'Fijado en tu cartera' : 'Disponible en tu cartera'}</span></div><button class="button button-ghost" type="button" data-project-preview-close>Cerrar</button><button class="button button-primary" type="button" data-project-preview-edit="${Number(project.id)}">Editar proyecto</button></footer>`;
+        <footer class="project-preview-footer"><div><span>${isProjectPinned(project) ? 'Fijado en tu cartera' : 'En tu cartera'}</span></div><button class="button" type="button" data-project-preview-close>Cerrar</button><button class="button button-primary" type="button" data-project-preview-edit="${Number(project.id)}">Editar proyecto</button></footer>`;
     }
 
     function projectPhotoSection(project, photos) {
-        return `<section class="project-detail-section project-photo-section" aria-labelledby="project-gallery-title"><header><div><span class="eyebrow">Galería</span><h3 id="project-gallery-title">Fotos del proyecto</h3><p>Capturas, avances visuales y referencias.</p></div><form class="project-photo-form" data-project-photo-form="${Number(project.id)}" enctype="multipart/form-data"><div><label class="button button-secondary button-small"><input type="file" name="file" accept=".jpg,.jpeg,.png,.webp,.gif" multiple required><span>${icon('image')} Elegir fotos</span></label><button class="button button-primary button-small" type="submit">Subir</button></div><small data-project-photo-feedback role="status" aria-live="polite"></small></form></header><div class="project-photo-gallery">${photos.length ? photos.map(projectPhoto).join('') : `<div class="project-photo-empty">${icon('image')}<strong>Tu galería está vacía</strong><span>Subí una captura para mostrar cómo va tomando forma.</span></div>`}</div></section>`;
+        return `<section class="project-detail-section project-photo-section" aria-labelledby="project-gallery-title"><header><div><h3 id="project-gallery-title">Galería</h3><p>Capturas, avances visuales y referencias.</p></div><form class="project-photo-form" data-project-photo-form="${Number(project.id)}" enctype="multipart/form-data"><div><label class="button button-secondary button-small"><input type="file" name="file" accept=".jpg,.jpeg,.png,.webp,.gif" multiple required><span>${icon('image')} Elegir fotos</span></label><button class="button button-primary button-small" type="submit">Subir</button></div><small data-project-photo-feedback role="status" aria-live="polite"></small></form></header><div class="project-photo-gallery">${photos.length ? photos.map(projectPhoto).join('') : `<div class="project-photo-empty">${icon('image')}<strong>Tu galería está vacía</strong><span>Sube una captura para mostrar cómo va tomando forma.</span></div>`}</div></section>`;
     }
 
     function projectPhoto(item) {
@@ -939,21 +1800,22 @@
 
     function projectPreviewTask(task) {
         const done = task.status === 'done';
-        return `<article class="project-preview-task${done ? ' is-done' : ''}"><button class="task-check${done ? ' is-done' : ''}" type="button" data-task-toggle="${Number(task.id)}" aria-label="${done ? 'Reabrir' : 'Completar'} ${escapeHTML(task.title)}">${done ? icon('check') : ''}</button><button class="project-preview-task-copy" type="button" data-record-preview="task" data-id="${Number(task.id)}"><strong>${escapeHTML(task.title || 'Tarea sin título')}</strong><span>${escapeHTML(PRIORITY[task.priority] || 'Prioridad media')}${task.due_date ? ` · ${dateDistance(task.due_date)}` : ' · Sin fecha'}</span></button>${statusBadge(task.status)}</article>`;
+        return `<article class="project-preview-task${done ? ' is-done' : ''}"><button class="task-check${done ? ' is-done' : ''}" type="button" data-task-toggle="${Number(task.id)}" aria-label="${done ? 'Reabrir' : 'Completar'} ${escapeHTML(task.title)}">${done ? icon('check') : ''}</button><button class="project-preview-task-copy" type="button" data-record-preview="task" data-id="${Number(task.id)}"><strong>${escapeHTML(task.title || 'Tarea sin título')}</strong><span>${escapeHTML(PRIORITY[task.priority] || 'Prioridad media')}${task.due_date ? ` · ${dateDistance(task.due_date)}` : ' · Sin fecha'}${checklistOf(task).length ? ` · ${checklistOf(task).filter(item => item.done).length}/${checklistOf(task).length} subtareas` : ''}${Number(task.estimated_minutes) ? ` · ${hoursLabel(task.estimated_minutes)}` : ''}</span></button><div class="task-row-end">${!done ? `<button class="icon-button task-timer-button" type="button" data-task-timer="${Number(task.id)}" aria-label="Empezar temporizador para ${escapeHTML(task.title || 'la tarea')}" title="Empezar temporizador">${icon('clock')}</button>` : ''}${statusBadge(task.status)}</div></article>`;
     }
 
     function projectTimelineEntry(entry) {
         const date = entry.entry_date || entry.created_at || entry.updated_at;
         const type = entry.entry_type || entry.type || 'note';
-        return `<article class="project-timeline-entry" data-record-preview="devlog" data-id="${Number(entry.id)}"><span class="project-timeline-mark entry-type-${escapeHTML(type)}"></span><div><header><div>${devlogTypeBadge(type)}<time datetime="${escapeHTML(date || '')}">${escapeHTML(formatDate(date))}</time></div><button class="text-button" type="button" data-edit="devlog" data-id="${Number(entry.id)}">Editar</button></header><h4 role="button" tabindex="0" data-record-preview="devlog" data-id="${Number(entry.id)}">${escapeHTML(entry.title || 'Cambio registrado')}</h4><p>${escapeHTML(entry.content || 'Sin detalles adicionales.')}</p>${Number(entry.minutes_spent) ? `<small>${icon('clock')}${Number(entry.minutes_spent)} min</small>` : ''}</div></article>`;
+        return `<article class="project-timeline-entry" data-record-preview="devlog" data-id="${Number(entry.id)}"><span class="project-timeline-mark entry-type-${escapeHTML(type)}"></span><div><header><div>${devlogTypeBadge(type)}<time datetime="${escapeHTML(date || '')}">${escapeHTML(formatDate(date))}</time></div><button class="text-button" type="button" data-edit="devlog" data-id="${Number(entry.id)}">Editar</button></header><h4 role="button" tabindex="0" data-record-preview="devlog" data-id="${Number(entry.id)}">${escapeHTML(entry.title || 'Cambio registrado')}</h4><p>${escapeHTML(markdownPlain(entry.content) || 'Sin detalles adicionales.')}</p>${Number(entry.minutes_spent) ? `<small>${icon('clock')}${Number(entry.minutes_spent)} min</small>` : ''}</div></article>`;
     }
 
     function projectDocumentSection(documents) {
-        return `<section class="project-detail-section" aria-labelledby="project-documents-title"><header><div><span class="eyebrow">Documentación</span><h3 id="project-documents-title">Archivos vinculados</h3><p>${documents.length} ${documents.length === 1 ? 'archivo relacionado' : 'archivos relacionados'}.</p></div></header><div class="project-preview-documents">${documents.map(item => `<a href="${escapeHTML(attachmentHref(item))}"><span class="file-type">${escapeHTML(String(item.original_name || '').split('.').pop().slice(0,5).toUpperCase() || 'DOC')}</span><span><strong>${escapeHTML(item.original_name || 'Archivo')}</strong><small>${escapeHTML(bytesLabel(item.size_bytes))}</small></span>${icon('arrow')}</a>`).join('')}</div></section>`;
+        return `<section class="project-detail-section" aria-labelledby="project-documents-title"><header><div><h3 id="project-documents-title">Archivos vinculados</h3><p>${documents.length} ${documents.length === 1 ? 'archivo relacionado' : 'archivos relacionados'}.</p></div></header><div class="project-preview-documents">${documents.map(item => `<a href="${escapeHTML(attachmentHref(item))}"><span class="file-type">${escapeHTML(String(item.original_name || '').split('.').pop().slice(0,5).toUpperCase() || 'DOC')}</span><span><strong>${escapeHTML(item.original_name || 'Archivo')}</strong><small>${escapeHTML(bytesLabel(item.size_bytes))}</small></span>${icon('arrow')}</a>`).join('')}</div></section>`;
     }
 
     function projectRelatedSection(title, items, renderer) {
-        return `<section class="project-related-section"><header><h3>${escapeHTML(title)}</h3><span>${items.length}</span></header><div>${items.length ? items.slice(0,6).map(renderer).join('') : '<p>No hay registros vinculados.</p>'}</div></section>`;
+        if (!items.length) return '';
+        return `<section class="project-related-section"><header><h3>${escapeHTML(title)}</h3><span>${items.length}</span></header><div>${items.slice(0,6).map(renderer).join('')}</div></section>`;
     }
 
     const FEEDBACK_TYPES = { comment: 'Comentario', bug: 'Bug', error: 'Error' };
@@ -976,7 +1838,7 @@
 
     function projectShareSection(project, share = {}) {
         if (share.unavailable) {
-            return `<section class="project-detail-section project-share-section is-unavailable" aria-labelledby="project-share-title"><header><div><span class="eyebrow">Validación externa</span><h3 id="project-share-title">Portal de revisión</h3><p>El portal no está disponible en este entorno.</p></div></header></section>`;
+            return `<section class="project-detail-section project-share-section is-unavailable" aria-labelledby="project-share-title"><header><div><h3 id="project-share-title">Portal de revisión</h3><p>El portal no está disponible en este entorno.</p></div></header></section>`;
         }
         const enabled = Boolean(share.enabled);
         const url = projectShareUrl(share);
@@ -988,14 +1850,14 @@
             ? `<div class="project-share-link-panel"><div class="project-share-link-copy"><label for="project-share-url-${Number(project.id)}">Enlace para compartir</label><div><input id="project-share-url-${Number(project.id)}" value="${escapeHTML(url)}" readonly spellcheck="false"><div class="project-share-buttons"><button class="button button-secondary button-small" type="button" data-project-share-copy>Copiar</button>${typeof navigator.share === 'function' ? '<button class="button button-secondary button-small" type="button" data-project-share-native>Compartir</button>' : ''}<a class="button button-ghost button-small" href="${escapeHTML(url)}" target="_blank" rel="noopener noreferrer">Abrir</a></div></div><small>El enlace permite enviar comentarios e imágenes, pero no muestra información privada de CodePanel.</small></div><div class="project-share-link-actions"><button class="text-button" type="button" data-project-share-action="regenerate">Regenerar</button><button class="text-button is-danger" type="button" data-project-share-action="disable">Desactivar</button></div></div>`
             : enabled
                 ? `<div class="project-share-empty is-warning"><span>!</span><div><strong>No pudimos preparar el enlace</strong><p>Regeneralo para reemplazarlo por uno nuevo y seguro.</p></div><button class="button button-primary button-small" type="button" data-project-share-action="regenerate">Regenerar enlace</button></div>`
-                : `<div class="project-share-empty"><span>${icon('mail')}</span><div><strong>Creá un enlace de revisión no listado</strong><p>La persona que lo reciba podrá registrar comentarios, bugs y errores con capturas, sin entrar a CodePanel.</p></div><button class="button button-primary button-small" type="button" data-project-share-action="enable">Crear enlace</button></div>`;
+                : `<div class="project-share-empty"><span>${icon('mail')}</span><div><strong>Crea un enlace de revisión no listado</strong><p>La persona que lo reciba podrá registrar comentarios, bugs y errores con capturas, sin entrar a CodePanel.</p></div><button class="button button-primary button-small" type="button" data-project-share-action="enable">Crear enlace</button></div>`;
         const feedbackContent = share.feedback_unavailable
-            ? `<div class="project-feedback-empty is-error" role="status"><strong>No pudimos cargar los reportes</strong><span>El enlace sigue disponible; reintentá para consultar el feedback recibido.</span><button class="text-button" type="button" data-project-feedback-retry>Reintentar</button></div>`
+            ? `<div class="project-feedback-empty is-error" role="status"><strong>No pudimos cargar los reportes</strong><span>El enlace sigue disponible; vuelve a intentarlo para consultar el feedback recibido.</span><button class="text-button" type="button" data-project-feedback-retry>Reintentar</button></div>`
             : items.length
                 ? `<div class="project-feedback-list" role="list" aria-label="Feedback recibido">${items.map(projectFeedbackItem).join('')}</div>`
-                : `<div class="project-feedback-empty"><strong>Todavía no llegó feedback</strong><span>Los reportes nuevos van a aparecer acá con sus imágenes y estado.</span></div>`;
+                : `<div class="project-feedback-empty"><strong>Todavía no llegó feedback</strong><span>Los reportes nuevos aparecerán aquí con sus imágenes y su estado.</span></div>`;
         return `<section class="project-detail-section project-share-section${enabled ? ' is-enabled' : ''}" aria-labelledby="project-share-title">
-            <header><div><span class="eyebrow">Validación externa</span><h3 id="project-share-title">Portal de revisión</h3><p>${enabled ? 'Compartí el avance y recibí reportes directamente en el proyecto.' : 'El portal está cerrado hasta que decidas habilitarlo.'}</p></div><div class="project-share-summary"><strong data-project-share-total>${total}</strong><span>${total === 1 ? 'reporte' : 'reportes'}</span><em data-project-share-pending${pending ? '' : ' hidden'}>${pending} ${pending === 1 ? 'pendiente' : 'pendientes'}</em></div></header>
+            <header><div><h3 id="project-share-title">Portal de revisión</h3><p>${enabled ? 'Comparte el avance y recibe reportes directamente en el proyecto.' : 'El portal está cerrado hasta que decidas habilitarlo.'}</p></div><div class="project-share-summary"><strong data-project-share-total>${total}</strong><span>${total === 1 ? 'reporte' : 'reportes'}</span><em data-project-share-pending${pending ? '' : ' hidden'}>${pending} ${pending === 1 ? 'pendiente' : 'pendientes'}</em></div></header>
             ${linkPanel}
             ${feedbackContent}
         </section>`;
@@ -1088,7 +1950,7 @@
             idea: item.title, task: item.title, reminder: item.title, devlog: item.title,
             client: item.name, lead: item.name, budget: item.title,
             payment: item.reference ? `Cobro · ${item.reference}` : `Cobro #${Number(item.id)}`,
-            release: item.title, resource: item.name, time_entry: item.description,
+            release: item.title, resource: item.name, time_entry: item.description, snippet: item.title,
             weekly_review: item.week_start ? `Semana del ${formatDate(item.week_start)}` : 'Revisión semanal',
             attachment: item.original_name, tag: item.name ? `#${item.name}` : 'Etiqueta',
         }[entity];
@@ -1097,6 +1959,7 @@
 
     function recordSubtitle(entity, item = {}) {
         if (entity === 'task' || entity === 'devlog' || entity === 'reminder' || entity === 'release' || entity === 'resource' || entity === 'time_entry') return item.project_name || 'Sin proyecto asociado';
+        if (entity === 'snippet') return [item.language, item.project_name || 'Fragmento general'].filter(Boolean).join(' · ');
         if (entity === 'idea') return item.category || 'Idea sin categoría';
         if (entity === 'client') return item.company || 'Profesional independiente';
         if (entity === 'lead') return item.company || item.email || 'Contacto sin empresa';
@@ -1129,7 +1992,7 @@
     }
 
     function previewSection(title, content, empty = 'Sin información adicional.') {
-        return `<section class="record-preview-section"><header class="record-preview-section-head"><h3>${escapeHTML(title)}</h3></header>${content ? `<div class="record-preview-copy">${escapeHTML(content)}</div>` : `<div class="record-preview-empty">${escapeHTML(empty)}</div>`}</section>`;
+        return `<section class="record-preview-section"><header class="record-preview-section-head"><h3>${escapeHTML(title)}</h3></header>${content ? `<div class="record-preview-copy">${markdownHTML(content)}</div>` : `<div class="record-preview-empty">${escapeHTML(empty)}</div>`}</section>`;
     }
 
     function previewMetaSection(title, items) {
@@ -1190,8 +2053,12 @@
         if (entity === 'idea') {
             main.push(previewSection('Idea y contexto',item.description,'Esta idea todavía no tiene una descripción.'));
             aside.push(previewMetaSection('Evaluación',[['Estado',item.archived ? 'Archivada' : STATUS[item.status] || item.status],['Categoría',item.category],['Impacto',`${clamp(item.impact,1,5)} de 5`],['Esfuerzo',`${clamp(item.effort,1,5)} de 5`],...base]));
+        } else if (entity === 'snippet') {
+            main.push(snippetPreviewSection(item));
+            aside.push(previewMetaSection('Fragmento',[['Lenguaje',item.language || 'Sin especificar'],['Líneas',String(String(item.content || '').split('\n').length)],['Actualizado',item.updated_at ? shortDate(item.updated_at) : null]]),projectRelation(item.project_id,item.project_name));
         } else if (entity === 'task') {
-            main.push(previewSection('Descripción',item.description,'Esta tarea no tiene detalles adicionales.'));
+            main.push(previewSection('Descripción',item.description,'Esta tarea no tiene detalles adicionales.'), taskChecklistSection(item));
+            const timeSection = taskTimeSection(item); if (timeSection) aside.push(timeSection);
             aside.push(previewMetaSection('Planificación',[['Estado',STATUS[item.status] || item.status],['Prioridad',PRIORITY[item.priority] || item.priority],['Responsable',item.assignee],['Fecha límite',item.due_date ? `${formatDate(item.due_date)} · ${dateDistance(item.due_date)}` : null],['Completada',item.completed_at ? formatDate(item.completed_at) : undefined],...base]),projectRelation(item.project_id,item.project_name));
         } else if (entity === 'reminder') {
             main.push(previewSection('Notas',item.notes,'No hay notas para este recordatorio.'));
@@ -1202,7 +2069,7 @@
         } else if (entity === 'client') {
             const projects = cachedRows('projects').filter(row => Number(row.client_id) === Number(item.id));
             const budgets = cachedRows('budgets').filter(row => Number(row.client_id) === Number(item.id));
-            main.push(previewSection('Notas de la relación',item.notes,'Todavía no guardaste notas sobre este cliente.'),previewRelatedSection('Proyectos',[...projects.map(row => previewRelationItem('project',row))]),previewRelatedSection('Presupuestos',[...budgets.map(row => previewRelationItem('budget',row,formatMoney(row.amount,row.currency)))]));
+            main.push(previewSection('Notas de la relación',item.notes,'Todavía no has guardado notas sobre este cliente.'),previewRelatedSection('Proyectos',[...projects.map(row => previewRelationItem('project',row))]),previewRelatedSection('Presupuestos',[...budgets.map(row => previewRelationItem('budget',row,formatMoney(row.amount,row.currency)))]));
             aside.push(previewMetaSection('Contacto',[['Estado',STATUS[item.status] || item.status],['Empresa',item.company],['Correo',item.email],['Teléfono',item.phone],['Origen',item.source],['Último contacto',item.last_contact ? `${formatDate(item.last_contact)} · ${dateDistance(item.last_contact)}` : null],...base]));
             links = [{label:item.email,url:item.email ? `mailto:${item.email}` : '',icon:'mail'},{label:item.phone,url:item.phone ? `tel:${item.phone}` : '',icon:'phone'},{label:'Sitio web',url:item.website,icon:'link'}];
         } else if (entity === 'lead') {
@@ -1227,7 +2094,7 @@
             links = [{label:'Abrir entrega',url:item.url,icon:'link'}];
         } else if (entity === 'resource') {
             main.push(previewSection('Notas operativas',item.notes,'Este recurso no tiene notas.'));
-            aside.push(previewMetaSection('Infraestructura',[['Tipo',RESOURCE_TYPES[item.resource_type] || item.resource_type],['Estado',STATUS[item.status] || item.status],['Entorno',ENVIRONMENTS[item.environment] || item.environment],['Proveedor',item.provider],['Costo',Number(item.cost) ? formatMoney(item.cost,item.currency) : 'Sin costo'],['Ciclo',BILLING_CYCLES[item.billing_cycle] || item.billing_cycle],['Renovación',item.renewal_date ? `${formatDate(item.renewal_date)} · ${dateDistance(item.renewal_date)}` : null],...base]),projectRelation(item.project_id,item.project_name));
+            aside.push(previewMetaSection('Infraestructura',[['Tipo',RESOURCE_TYPES[item.resource_type] || item.resource_type],['Estado',STATUS[item.status] || item.status],['Entorno',ENVIRONMENTS[item.environment] || item.environment],['Proveedor',item.provider],...(item.credential_ref ? [['Credencial',item.credential_ref]] : []),['Costo',Number(item.cost) ? formatMoney(item.cost,item.currency) : 'Sin costo'],['Ciclo',BILLING_CYCLES[item.billing_cycle] || item.billing_cycle],['Renovación',item.renewal_date ? `${formatDate(item.renewal_date)} · ${dateDistance(item.renewal_date)}` : null],...base]),projectRelation(item.project_id,item.project_name));
             links = [{label:'Abrir recurso',url:item.url,icon:'link'}];
         } else if (entity === 'time_entry') {
             const task = cachedRecord('task',item.task_id);
@@ -1257,7 +2124,7 @@
         const details = recordPreviewDetails(entity,item);
         const canEdit = Boolean(ENTITY_ROUTE[entity]);
         const download = entity === 'attachment' ? attachmentHref(item) : '';
-        dom.recordPreviewContent.innerHTML = `<header class="record-preview-header"><div class="record-preview-hero"><span class="record-preview-eyebrow">${escapeHTML(RECORD_PREVIEW_LABELS[entity] || 'Registro')}</span>${recordPills(entity,item)}<h2 class="record-preview-title" id="record-preview-title">${escapeHTML(recordTitle(entity,item))}</h2><p class="record-preview-subtitle">${escapeHTML(recordSubtitle(entity,item))}</p></div><button class="record-preview-close" type="button" data-record-preview-close aria-label="Cerrar vista previa">×</button></header><div class="record-preview-body"><div class="record-preview-grid"><main class="record-preview-main">${details.main || '<div class="record-preview-empty">No hay información adicional.</div>'}</main><aside class="record-preview-aside">${details.aside}</aside></div></div><footer class="record-preview-footer"><span>${escapeHTML(RECORD_PREVIEW_LABELS[entity] || 'Registro')} #${Number(item.id)}</span><div class="record-preview-actions"><button class="button button-ghost" type="button" data-record-preview-close>Cerrar</button>${download ? `<a class="button button-secondary" href="${escapeHTML(download)}">Descargar</a>` : ''}${canEdit ? `<button class="button button-primary" type="button" data-record-preview-edit="${escapeHTML(entity)}" data-id="${Number(item.id)}">Editar</button>` : ''}</div></footer>`;
+        dom.recordPreviewContent.innerHTML = `<header class="record-preview-header"><div class="record-preview-hero"><span class="record-preview-eyebrow">${escapeHTML(RECORD_PREVIEW_LABELS[entity] || 'Registro')}</span>${recordPills(entity,item)}<h2 class="record-preview-title" id="record-preview-title">${escapeHTML(recordTitle(entity,item))}</h2><p class="record-preview-subtitle">${escapeHTML(markdownPlain(recordSubtitle(entity,item)))}</p></div><button class="record-preview-close" type="button" data-record-preview-close aria-label="Cerrar vista previa"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><div class="record-preview-body"><div class="record-preview-grid"><main class="record-preview-main">${details.main || '<div class="record-preview-empty">No hay información adicional.</div>'}</main><aside class="record-preview-aside">${details.aside}</aside></div></div><footer class="record-preview-footer"><span>${escapeHTML(RECORD_PREVIEW_LABELS[entity] || 'Registro')} #${Number(item.id)}</span><div class="record-preview-actions"><button class="button button-ghost" type="button" data-record-preview-close>Cerrar</button>${download ? `<a class="button button-secondary" href="${escapeHTML(download)}">Descargar</a>` : ''}${canEdit ? `<button class="button button-primary" type="button" data-record-preview-edit="${escapeHTML(entity)}" data-id="${Number(item.id)}">Editar</button>` : ''}</div></footer>`;
     }
 
     function renderIdeas(items) {
@@ -1270,10 +2137,10 @@
             ? (available.length
                 ? noFilterResults('ideas')
                 : showingArchive
-                    ? '<div class="empty-state"><div class="empty-inner"><div class="empty-art"><span>◇</span></div><h2>El archivo está vacío</h2><p>Cuando archives una idea, vas a poder recuperarla desde acá.</p><button class="button button-ghost" type="button" data-clear-filters="ideas">Volver al semillero</button></div></div>'
-                    : emptyState('idea', 'Plantá tu primera idea', 'No necesita estar resuelta. Guardala ahora y dale forma cuando sea el momento.'))
-            : `<div class="idea-layout"><div class="idea-grid">${visible.map(ideaCard).join('')}</div><aside class="idea-sidebar"><div class="idea-quote"><span>“</span><p>Las ideas mejoran cuando tienen un lugar al que volver.</p><small>El semillero de CodePanel</small></div><div class="idea-breakdown"><h3>Por categoría</h3>${Object.entries(categories).slice(0,5).map(([category,count], index) => `<div class="breakdown-row"><span>${escapeHTML(category)}</span><strong>${count}</strong><div class="breakdown-bar" style="--bar-color:${['var(--yellow)','var(--coral)','var(--sage)','var(--blue)','var(--purple)'][index % 5]}"><span style="width:${Math.round(count/maxCategory*100)}%"></span></div></div>`).join('')}</div></aside></div>`;
-        return `${pageHeading('Tu semillero', 'Ideas que pueden <em>crecer</em>.', 'Capturá la chispa, medí su potencial y dejá que madure sin presión.', 'idea')}
+                    ? '<div class="empty-state"><div class="empty-inner"><div class="empty-art"><span>◇</span></div><h2>El archivo está vacío</h2><p>Cuando archives una idea, podrás recuperarla desde aquí.</p><button class="button button-ghost" type="button" data-clear-filters="ideas">Volver al semillero</button></div></div>'
+                    : emptyState('idea', 'Planta tu primera idea', 'No necesita estar resuelta. Guárdala ahora y dale forma cuando sea el momento.'))
+            : `<div class="idea-layout"><div class="idea-grid">${visible.map(ideaCard).join('')}</div><aside class="idea-sidebar"><div class="idea-breakdown"><h3>Por categoría</h3>${Object.entries(categories).slice(0,5).map(([category,count], index) => `<div class="breakdown-row"><span>${escapeHTML(category)}</span><strong>${count}</strong><div class="breakdown-bar" style="--bar-color:${['var(--yellow)','var(--coral)','var(--sage)','var(--blue)','var(--purple)'][index % 5]}"><span style="width:${Math.round(count/maxCategory*100)}%"></span></div></div>`).join('')}</div></aside></div>`;
+        return `${pageHeading('Tu semillero', 'Ideas que pueden <em>crecer</em>.', 'Captura la chispa, mide su potencial y deja que madure sin presión.', 'idea')}
             ${collectionToolbar('ideas', visible.length, [['inbox','En la bandeja'],['exploring','Explorando'],['validated','Validadas'],['building','Construyendo'],['parked','En pausa'],['archived','Archivadas']])}${content}`;
     }
 
@@ -1284,12 +2151,12 @@
         ];
         const [color,wash] = colors[index % colors.length];
         const dots = score => Array.from({length:5}, (_, i) => `<i class="${i < clamp(score,1,5) ? 'is-filled' : ''}"></i>`).join('');
-        return `<article class="idea-card" style="--idea-color:${color};--idea-wash:${wash}" data-record="idea" data-id="${Number(idea.id)}" data-record-preview="idea"><span class="pin"></span><div class="card-topline">${statusBadge(idea.archived ? 'archived' : idea.status)}<button class="icon-button card-menu-button" type="button" data-card-menu aria-label="Opciones">${icon('more')}</button></div><div class="card-actions-menu" hidden><button type="button" data-edit="idea" data-id="${Number(idea.id)}">Editar</button><button class="danger" type="button" data-delete="idea" data-id="${Number(idea.id)}">Eliminar</button></div><button class="card-content-button" type="button" data-record-preview="idea" data-id="${Number(idea.id)}"><h2>${escapeHTML(idea.title)}</h2><p class="description">${escapeHTML(idea.description || 'Una idea que todavía está buscando palabras.')}</p></button><div class="idea-tags">${asArray(idea.tags).map(tag => `<span>${escapeHTML(tag)}</span>`).join('')}</div><footer class="idea-score"><span>Impacto <span class="dot-score">${dots(idea.impact)}</span></span><span>Esfuerzo <span class="dot-score">${dots(idea.effort)}</span></span></footer></article>`;
+        return `<article class="idea-card" style="--idea-color:${color};--idea-wash:${wash}" data-record="idea" data-id="${Number(idea.id)}" data-record-preview="idea"><span class="pin"></span><div class="card-topline">${statusBadge(idea.archived ? 'archived' : idea.status)}<button class="icon-button card-menu-button" type="button" data-card-menu aria-label="Opciones">${icon('more')}</button></div><div class="card-actions-menu" hidden><button type="button" data-edit="idea" data-id="${Number(idea.id)}">Editar</button><button class="danger" type="button" data-delete="idea" data-id="${Number(idea.id)}">Eliminar</button></div><button class="card-content-button" type="button" data-record-preview="idea" data-id="${Number(idea.id)}"><h2>${escapeHTML(idea.title)}</h2><p class="description">${escapeHTML(markdownPlain(idea.description) || 'Una idea que todavía está buscando palabras.')}</p></button><div class="idea-tags">${asArray(idea.tags).map(tag => `<span>${escapeHTML(tag)}</span>`).join('')}</div><footer class="idea-score"><span>Impacto <span class="dot-score">${dots(idea.impact)}</span></span><span>Esfuerzo <span class="dot-score">${dots(idea.effort)}</span></span></footer></article>`;
     }
 
     function renderClients(items) {
         const visible = filtered(items, 'clients');
-        const content = !visible.length ? (items.length ? noFilterResults('clients') : emptyState('client', 'Construí tu red de trabajo', 'Guardá a tus clientes y todo el contexto que hace más humana cada relación.')) : `<div class="contact-grid">${visible.map(contactCard).join('')}</div>`;
+        const content = !visible.length ? (items.length ? noFilterResults('clients') : emptyState('client', 'Construye tu red de trabajo', 'Guarda a tus clientes y todo el contexto que hace más humana cada relación.')) : `<div class="contact-grid">${visible.map(contactCard).join('')}</div>`;
         const active = items.filter(item => item.status === 'active').length;
         return `${pageHeading('Tu red', 'Clientes, con <em>contexto</em>.', `${active} relaciones activas. Datos, notas y últimos contactos en un solo lugar.`, 'client', '<button class="button button-ghost" type="button" data-nav-button="leads">Ver oportunidades</button>')}
             ${collectionToolbar('clients', visible.length, [['active','Activos'],['lead','Potenciales'],['inactive','Inactivos']])}${content}`;
@@ -1305,7 +2172,7 @@
         const open = visible.filter(item => !['won','lost'].includes(item.status));
         const value = open.reduce((sum, item) => sum + Number(item.value || 0), 0);
         const stages = [['new','Nuevos','var(--purple)'],['contacted','Contactados','var(--coral)'],['qualified','Calificados','var(--blue)'],['proposal','Propuesta','var(--yellow)'],['won','Ganados','var(--sage)'],['lost','Perdidos','var(--muted)']];
-        const content = !visible.length ? (items.length ? noFilterResults('leads') : emptyState('lead', 'Tu próxima colaboración puede empezar acá', 'Registrá personas interesadas y acompañá cada conversación hasta convertirla en trabajo.')) : `<div class="pipeline">${stages.map(([status,label,color]) => { const leads = visible.filter(lead => lead.status === status); return `<section class="pipeline-stage" style="--stage-color:${color}"><header class="pipeline-header"><i></i><strong>${label}</strong><span>${leads.length}</span></header><div class="lead-list">${leads.length ? leads.map(leadCard).join('') : '<div class="inline-empty">Vacío</div>'}</div></section>`; }).join('')}</div>`;
+        const content = !visible.length ? (items.length ? noFilterResults('leads') : emptyState('lead', 'Tu próxima colaboración puede empezar aquí', 'Registra personas interesadas y acompaña cada conversación hasta convertirla en trabajo.')) : `<div class="pipeline">${stages.map(([status,label,color]) => { const leads = visible.filter(lead => lead.status === status); return `<section class="pipeline-stage" style="--stage-color:${color}"><header class="pipeline-header"><i></i><strong>${label}</strong><span>${leads.length}</span></header><div class="lead-list">${leads.length ? leads.map(leadCard).join('') : '<div class="inline-empty">Sin oportunidades</div>'}</div></section>`; }).join('')}</div>`;
         return `${pageHeading('Nuevas relaciones', 'Oportunidades en <em>movimiento</em>.', `${open.length} conversaciones abiertas por un valor estimado de ${formatMoney(value)}.`, 'lead', '<button class="button button-ghost" type="button" data-nav-button="clients">Ver clientes</button>')}
             ${collectionToolbar('leads', visible.length)}${content}`;
     }
@@ -1319,9 +2186,9 @@
         const done = items.filter(item => item.status === 'done').length;
         const completion = items.length ? Math.round(done / items.length * 100) : 0;
         const groups = [['in_progress','En curso','var(--blue)'],['todo','Por hacer','var(--purple)'],['done','Completadas','var(--sage)']];
-        const board = !visible.length ? (items.length ? noFilterResults('tasks') : emptyState('task', 'Una próxima acción cambia todo', 'Anotá tareas concretas y conectalas con tus proyectos para mantener el impulso.')) : `<div class="task-page-grid"><div class="task-board">${groups.map(([status,label,color]) => { const tasks = visible.filter(task => task.status === status); return `<section class="task-group"><header class="task-group-header" style="--group-color:${color}"><strong><i></i>${label}</strong><span>${tasks.length}</span></header>${tasks.length ? tasks.map(task => taskRow(task)).join('') : '<div class="inline-empty">No hay tareas en esta etapa.</div>'}</section>`; }).join('')}</div><aside class="task-aside"><div class="week-card"><h2>Ritmo actual</h2><p>${done} de ${items.length} tareas completadas</p><div class="week-progress"><span style="width:${completion}%"></span></div><div class="week-caption"><span>Avance total</span><strong>${completion}%</strong></div></div><div class="priority-legend"><h3>Prioridades</h3><p><i class="priority-dot" style="--priority-color:var(--danger)"></i>Urgente</p><p><i class="priority-dot" style="--priority-color:var(--coral)"></i>Alta</p><p><i class="priority-dot" style="--priority-color:var(--yellow)"></i>Media</p><p><i class="priority-dot" style="--priority-color:var(--sage)"></i>Baja</p></div></aside></div>`;
+        const board = !visible.length ? (items.length ? noFilterResults('tasks') : emptyState('task', 'Una próxima acción cambia todo', 'Anota tareas concretas y conéctalas con tus proyectos para mantener el impulso.')) : `<div class="task-page-grid"><div class="task-board">${groups.map(([status,label,color]) => { const tasks = visible.filter(task => task.status === status); return `<section class="task-group"><header class="task-group-header" style="--group-color:${color}"><strong><i></i>${label}</strong><span>${tasks.length}</span></header>${tasks.length ? tasks.map(task => taskRow(task)).join('') : '<div class="inline-empty">No hay tareas en esta etapa.</div>'}</section>`; }).join('')}</div><aside class="task-aside"><div class="week-card"><h2>Ritmo actual</h2><p>${done} de ${items.length} tareas completadas</p><div class="week-progress"><span style="width:${completion}%"></span></div><div class="week-caption"><span>Avance total</span><strong>${completion}%</strong></div></div><div class="priority-legend"><h3>Prioridades</h3><p><i class="priority-dot" style="--priority-color:var(--danger)"></i>Urgente</p><p><i class="priority-dot" style="--priority-color:var(--coral)"></i>Alta</p><p><i class="priority-dot" style="--priority-color:var(--yellow)"></i>Media</p><p><i class="priority-dot" style="--priority-color:var(--sage)"></i>Baja</p></div></aside></div>`;
         return `${pageHeading('Tu próxima acción', 'Tareas para <em>avanzar</em>.', 'Una lista deliberadamente simple: qué hacer, para cuándo y dentro de qué proyecto.', 'task')}
-            ${collectionToolbar('tasks', visible.length, [['in_progress','En curso'],['todo','Por hacer'],['done','Completadas']])}${board}`;
+            ${collectionToolbar('tasks', visible.length, [['in_progress','En curso'],['todo','Por hacer'],['done','Completadas']], true)}${state.filters.tasks.view === 'board' && visible.length ? taskBoard(visible) : board}`;
     }
 
     function devlogTypeBadge(type) {
@@ -1332,7 +2199,7 @@
         const visible = filtered(items, 'devlogs');
         const minutes = visible.reduce((sum, item) => sum + Number(item.minutes_spent || 0), 0);
         const content = !visible.length
-            ? (items.length ? noFilterResults('devlogs') : emptyState('devlog', 'Empezá a registrar el camino', 'Guardá avances, decisiones y aprendizajes para volver a ellos cuando los necesites.'))
+            ? (items.length ? noFilterResults('devlogs') : emptyState('devlog', 'Empieza a registrar el camino', 'Guarda avances, decisiones y aprendizajes para volver a ellos cuando los necesites.'))
             : `<div class="devlog-timeline">${visible.map(devlogEntry).join('')}</div>`;
         return `${pageHeading('Memoria de trabajo', 'Una bitácora para <em>recordar por qué</em>.', `${visible.length} entradas${minutes ? ` y ${minutes} minutos registrados` : ''}. El contexto también forma parte del proyecto.`, 'devlog')}
             ${collectionToolbar('devlogs', visible.length, Object.entries(DEVLOG_TYPES))}${content}`;
@@ -1346,7 +2213,7 @@
             <div class="devlog-card" data-record-preview="devlog" data-id="${Number(entry.id)}">
                 <header class="devlog-head"><div><time datetime="${escapeHTML(entry.entry_date || '')}">${escapeHTML(formatDate(entry.entry_date, { day: 'numeric', month: 'long', year: 'numeric' }))}</time><div class="devlog-labels">${devlogTypeBadge(entry.entry_type)}${entry.project_name ? `<span>${escapeHTML(entry.project_name)}</span>` : '<span>Sin proyecto</span>'}</div></div><button class="icon-button card-menu-button" type="button" data-card-menu aria-label="Opciones de ${escapeHTML(entry.title)}">${icon('more')}</button></header>
                 <div class="card-actions-menu" hidden><button type="button" data-edit="devlog" data-id="${Number(entry.id)}">Editar</button><button class="danger" type="button" data-delete="devlog" data-id="${Number(entry.id)}">Eliminar</button></div>
-                <button class="devlog-content-button" type="button" data-record-preview="devlog" data-id="${Number(entry.id)}"><h2>${escapeHTML(entry.title)}</h2><p>${escapeHTML(entry.content || 'Sin notas adicionales.')}</p></button>
+                <button class="devlog-content-button" type="button" data-record-preview="devlog" data-id="${Number(entry.id)}"><h2>${escapeHTML(entry.title)}</h2><p>${escapeHTML(markdownPlain(entry.content) || 'Sin notas adicionales.')}</p></button>
                 <footer class="devlog-footer"><div class="devlog-tags">${tags.map(tag => `<span>#${escapeHTML(tag)}</span>`).join('')}</div>${Number(entry.minutes_spent) > 0 ? `<small>${icon('clock')}${Number(entry.minutes_spent)} min</small>` : ''}</footer>
             </div>
         </article>`;
@@ -1355,7 +2222,7 @@
     function groupedMoney(items, field) {
         const currencies = ['ARS', 'USD', 'EUR'].filter(currency => items.some(item => item.currency === currency));
         if (!currencies.length) return '<span>$ 0</span>';
-        return currencies.map(currency => `<span><small>${currency}</small>${escapeHTML(formatMoney(items.filter(item => item.currency === currency).reduce((sum, item) => sum + Number(item[field] || 0), 0), currency))}</span>`).join('');
+        return currencies.map(currency => `<span><small>${currency}</small>${moneyHTML(items.filter(item => item.currency === currency).reduce((sum, item) => sum + Number(item[field] || 0), 0), currency)}</span>`).join('');
     }
 
     function financeMetric(label, items, field, caption) {
@@ -1368,7 +2235,7 @@
         const canCharge = items.length > 0;
         const headingAction = canCharge ? '<button class="button button-ghost" type="button" data-create="payment">Registrar cobro</button>' : '';
         const budgetContent = !visible.length
-            ? (items.length ? noFilterResults('budgets') : emptyState('budget', 'Dale forma a tu primer presupuesto', 'Ordená alcance, valor y vigencia antes de compartir una propuesta.'))
+            ? (items.length ? noFilterResults('budgets') : emptyState('budget', 'Dale forma a tu primer presupuesto', 'Ordena alcance, valor y vigencia antes de compartir una propuesta.'))
             : `<div class="budget-grid">${visible.map(budgetCard).join('')}</div>`;
         return `${pageHeading('Trabajo comercial', 'Presupuestos y <em>cobros claros</em>.', 'Una vista honesta de lo cotizado, lo que ya ingresó y lo que todavía está pendiente.', 'budget', headingAction)}
             <div class="finance-metrics">${financeMetric('Cotizado', items, 'amount', `${items.length} ${items.length === 1 ? 'presupuesto' : 'presupuestos'}`)}${financeMetric('Cobrado', items, 'paid_amount', `${payments.length} ${payments.length === 1 ? 'movimiento' : 'movimientos'}`)}${financeMetric('Pendiente', items, 'balance', 'Saldo por cobrar')}</div>
@@ -1385,27 +2252,27 @@
         return `<article class="budget-card" data-record="budget" data-id="${Number(budget.id)}" data-record-preview="budget">
             <header><div>${statusBadge(budget.status)}<small>${escapeHTML(budget.currency || 'USD')}</small></div><button class="icon-button card-menu-button" type="button" data-card-menu aria-label="Opciones de ${escapeHTML(budget.title)}">${icon('more')}</button></header>
             <div class="card-actions-menu" hidden><button type="button" data-edit="budget" data-id="${Number(budget.id)}">Editar</button><button class="danger" type="button" data-delete="budget" data-id="${Number(budget.id)}">Eliminar</button></div>
-            <button class="budget-content-button" type="button" data-record-preview="budget" data-id="${Number(budget.id)}"><h2>${escapeHTML(budget.title)}</h2><p>${escapeHTML(budget.client_name || 'Sin cliente asignado')}${budget.project_name ? ` · ${escapeHTML(budget.project_name)}` : ''}</p><strong>${escapeHTML(formatMoney(amount, budget.currency))}</strong></button>
-            <div class="budget-progress"><div><span>Cobrado</span><strong>${progress}%</strong></div><div class="progress-bar"><span style="--progress:${progress}%"></span></div><small>Saldo ${escapeHTML(formatMoney(budget.balance, budget.currency))}</small></div>
-            <footer><span class="budget-validity${validityClass}">${icon('calendar')}${budget.valid_until ? `Vigente ${escapeHTML(dateDistance(budget.valid_until).toLowerCase())}` : 'Sin vencimiento'}</span><button class="text-button" type="button" data-create="payment" data-prefill-budget="${Number(budget.id)}">＋ Cobro</button></footer>
+            <button class="budget-content-button" type="button" data-record-preview="budget" data-id="${Number(budget.id)}"><h2>${escapeHTML(budget.title)}</h2><p>${escapeHTML(budget.client_name || 'Sin cliente asignado')}${budget.project_name ? ` · ${escapeHTML(budget.project_name)}` : ''}</p><strong>${moneyHTML(amount, budget.currency)}</strong></button>
+            <div class="budget-progress"><div><span>Cobrado</span><strong>${progress}%</strong></div><div class="progress-bar"><span style="--progress:${progress}%"></span></div><small>Saldo ${moneyHTML(budget.balance, budget.currency)}</small></div>
+            <footer><span class="budget-validity${validityClass}">${icon('calendar')}${budget.valid_until ? `Vigente ${escapeHTML(dateDistance(budget.valid_until).toLowerCase())}` : 'Sin vencimiento'}</span><button class="text-button" type="button" data-create="payment" data-prefill-budget="${Number(budget.id)}">${icon('plus')}Cobro</button></footer>
         </article>`;
     }
 
     function paymentPanel(payments, canCharge) {
-        return `<aside class="payment-panel"><header><div><span class="eyebrow">Movimientos</span><h2>Cobros recientes</h2></div>${canCharge ? '<button class="icon-button" type="button" data-create="payment" aria-label="Registrar cobro">＋</button>' : ''}</header><div class="payment-list">${payments.length ? payments.map(paymentRow).join('') : '<div class="inline-empty">Todavía no registraste cobros.</div>'}</div></aside>`;
+        return `<aside class="payment-panel"><header><div><span class="eyebrow">Movimientos</span><h2>Cobros recientes</h2></div>${canCharge ? '<button class="icon-button" type="button" data-create="payment" aria-label="Registrar cobro">' + icon('plus') + '</button>' : ''}</header><div class="payment-list">${payments.length ? payments.map(paymentRow).join('') : '<div class="inline-empty">Todavía no has registrado cobros.</div>'}</div></aside>`;
     }
 
     function paymentRow(payment) {
         const budget = (state.cache.get('budgets')?.data || []).find(item => Number(item.id) === Number(payment.budget_id));
         const currency = budget?.currency || 'USD';
-        return `<article class="payment-row" role="button" tabindex="0" aria-label="Abrir cobro de ${escapeHTML(formatMoney(payment.amount, currency))}" data-record-preview="payment" data-id="${Number(payment.id)}"><span class="payment-mark">${icon('wallet')}</span><div><strong>${escapeHTML(formatMoney(payment.amount, currency))}</strong><p>${escapeHTML(payment.budget_title || 'Presupuesto')} · ${escapeHTML(PAYMENT_METHODS[payment.method] || 'Otro medio')}</p></div><time datetime="${escapeHTML(payment.paid_at || '')}">${escapeHTML(formatDate(payment.paid_at))}</time></article>`;
+        return `<article class="payment-row" role="button" tabindex="0" aria-label="Abrir cobro de ${moneyHTML(payment.amount, currency)}" data-record-preview="payment" data-id="${Number(payment.id)}"><span class="payment-mark">${icon('wallet')}</span><div><strong>${moneyHTML(payment.amount, currency)}</strong><p>${escapeHTML(payment.budget_title || 'Presupuesto')} · ${escapeHTML(PAYMENT_METHODS[payment.method] || 'Otro medio')}</p></div><time datetime="${escapeHTML(payment.paid_at || '')}">${escapeHTML(shortDate(payment.paid_at))}</time></article>`;
     }
 
     function renderReleases(items) {
         const visible = filtered(items, 'releases');
         const published = items.filter(item => item.status === 'published').length;
         const content = !visible.length
-            ? (items.length ? noFilterResults('releases') : emptyState('release', 'Registrá tu primera entrega', 'Conservá versiones, enlaces y contexto para saber exactamente qué llegó a cada entorno.'))
+            ? (items.length ? noFilterResults('releases') : emptyState('release', 'Registra tu primera entrega', 'Conserva versiones, enlaces y contexto para saber exactamente qué llegó a cada entorno.'))
             : `<div class="release-timeline">${visible.map(releaseCard).join('')}</div>`;
         return `${pageHeading('Historial de salida', 'Entregas con <em>trazabilidad</em>.', `${published} publicadas de ${items.length}. Cada versión deja una huella clara.`, 'release')}
             ${collectionToolbar('releases', visible.length, [['planned','Planificadas'],['ready','Listas'],['published','Publicadas'],['rolled_back','Revertidas']])}${content}`;
@@ -1413,7 +2280,7 @@
 
     function releaseCard(release) {
         const date = release.release_date ? parseDate(release.release_date) : null;
-        return `<article class="release-card" data-record="release" data-id="${Number(release.id)}" data-record-preview="release"><div class="release-date"><strong>${date ? date.getDate() : '—'}</strong><span>${date ? new Intl.DateTimeFormat('es-AR', { month: 'short' }).format(date).replace('.', '') : 'Sin fecha'}</span></div><div class="release-body"><header><div class="release-labels">${statusBadge(release.status)}<span class="release-kind">${escapeHTML(RELEASE_KINDS[release.kind] || 'Versión')}</span><span>${escapeHTML(ENVIRONMENTS[release.environment] || release.environment || 'Sin entorno')}</span></div><button class="icon-button card-menu-button" type="button" data-card-menu aria-label="Opciones de ${escapeHTML(release.title)}">${icon('more')}</button></header><div class="card-actions-menu" hidden><button type="button" data-edit="release" data-id="${Number(release.id)}">Editar</button><button class="danger" type="button" data-delete="release" data-id="${Number(release.id)}">Eliminar</button></div><button class="release-content-button" type="button" data-record-preview="release" data-id="${Number(release.id)}"><span class="release-version">${escapeHTML(release.version || 'Sin versión')}</span><h2>${escapeHTML(release.title)}</h2><p>${escapeHTML(release.notes || 'Sin notas para esta salida.')}</p></button><footer><span>${icon('folder')}${escapeHTML(release.project_name || 'Sin proyecto')}</span>${release.url ? `<a href="${escapeHTML(safeUrl(release.url))}" target="_blank" rel="noopener">Abrir enlace ${icon('arrow')}</a>` : ''}</footer></div></article>`;
+        return `<article class="release-card" data-record="release" data-id="${Number(release.id)}" data-record-preview="release"><div class="release-date"><strong>${date ? date.getDate() : '—'}</strong><span>${date ? new Intl.DateTimeFormat('es-AR', { month: 'short' }).format(date).replace('.', '') : 'Sin fecha'}</span></div><div class="release-body"><header><div class="release-labels">${statusBadge(release.status)}<span class="release-kind">${escapeHTML(RELEASE_KINDS[release.kind] || 'Versión')}</span><span>${escapeHTML(ENVIRONMENTS[release.environment] || release.environment || 'Sin entorno')}</span></div><button class="icon-button card-menu-button" type="button" data-card-menu aria-label="Opciones de ${escapeHTML(release.title)}">${icon('more')}</button></header><div class="card-actions-menu" hidden><button type="button" data-edit="release" data-id="${Number(release.id)}">Editar</button><button class="danger" type="button" data-delete="release" data-id="${Number(release.id)}">Eliminar</button></div><button class="release-content-button" type="button" data-record-preview="release" data-id="${Number(release.id)}"><span class="release-version">${escapeHTML(release.version || 'Sin versión')}</span><h2>${escapeHTML(release.title)}</h2><p>${escapeHTML(markdownPlain(release.notes) || 'Sin notas para esta salida.')}</p></button><footer><span>${icon('folder')}${escapeHTML(release.project_name || 'Sin proyecto')}</span>${release.url ? `<a href="${escapeHTML(safeUrl(release.url))}" target="_blank" rel="noopener">Abrir enlace ${icon('arrow')}</a>` : ''}</footer></div></article>`;
     }
 
     function renderResources(items) {
@@ -1421,7 +2288,7 @@
         const attention = items.filter(item => item.status === 'attention').length;
         const renewals = items.filter(item => { const days = daysUntil(item.renewal_date); return days !== null && days >= 0 && days <= 30; }).length;
         const content = !visible.length
-            ? (items.length ? noFilterResults('resources') : emptyState('resource', 'Armá tu inventario técnico', 'Dominios, servicios y repositorios en un solo lugar, sin guardar credenciales sensibles.'))
+            ? (items.length ? noFilterResults('resources') : emptyState('resource', 'Arma tu inventario técnico', 'Dominios, servicios y repositorios en un solo lugar, sin guardar credenciales sensibles.'))
             : `<div class="resource-grid">${visible.map(resourceCard).join('')}</div>`;
         return `${pageHeading('Inventario operativo', 'La infraestructura, <em>a la vista</em>.', `${items.length} recursos registrados, ${attention} con atención pendiente y ${renewals} renovaciones próximas.`, 'resource')}
             <aside class="security-note" role="note"><span>${icon('alert')}</span><div><strong>Este inventario no es una bóveda.</strong><p>No guardes contraseñas, tokens, claves privadas ni secretos en nombres, URLs o notas.</p></div></aside>
@@ -1450,8 +2317,8 @@
         ];
         const content = visible.length ? `<div class="reminder-layout"><div class="reminder-groups">${groups.map(([label,test]) => {
             const records = visible.filter(test); return records.length ? `<section class="reminder-group"><header><h2>${label}</h2><span>${records.length}</span></header>${records.map(reminderCard).join('')}</section>` : '';
-        }).join('')}</div><aside class="reminder-explainer panel panel-padded"><span class="reminder-bell">${icon('alert')}</span><h2>Todo lo que pide atención</h2><p>CodePanel combina tus recordatorios con vencimientos de tareas, oportunidades, presupuestos, entregas y recursos.</p><button class="text-button" type="button" data-nav-button="settings">Cambiar anticipación →</button></aside></div>`
-            : emptyState('reminder', 'Nada pendiente por ahora', 'Creá un recordatorio personal o dejá que CodePanel reúna las fechas de tu espacio.');
+        }).join('')}</div><aside class="reminder-explainer panel panel-padded"><span class="reminder-bell">${icon('alert')}</span><h2>Todo lo que pide atención</h2><p>CodePanel combina tus recordatorios con vencimientos de tareas, oportunidades, presupuestos, entregas y recursos.</p><button class="text-button" type="button" data-nav-button="settings">Cambiar anticipación${icon('chevron')}</button></aside></div>`
+            : emptyState('reminder', 'Nada pendiente por ahora', 'Crea un recordatorio personal o deja que CodePanel reúna las fechas de tu espacio.');
         return `${pageHeading('Centro de atención', 'Que nada importante <em>se pierda</em>.', `${pending.length} pendientes, ${overdue} vencidos y ${derived} alertas automáticas.`, 'reminder')}
             <div class="resource-metrics"><article><strong>${pending.length}</strong><span>Pendientes</span></article><article><strong>${overdue}</strong><span>Vencidos</span></article><article><strong>${pending.filter(item => daysUntil(item.due_at) === 0).length}</strong><span>Para hoy</span></article><article><strong>${derived}</strong><span>Automáticos</span></article></div>
             ${collectionToolbar('reminders', visible.length, [['pending','Pendientes'],['done','Completados'],['dismissed','Descartados']])}${content}`;
@@ -1464,7 +2331,7 @@
         const previewAttributes = isDerived ? `data-source-open="${escapeHTML(item.source_type)}" data-id="${Number(item.source_id)}"` : `data-record-preview="reminder" data-id="${id}"`;
         return `<article class="reminder-card${late ? ' is-late' : ''}${item.status !== 'pending' ? ' is-resolved' : ''}" ${previewAttributes}>
             <span class="reminder-priority priority-${escapeHTML(item.priority || 'medium')}"></span>
-            <div class="reminder-copy" role="button" tabindex="0" ${previewAttributes}><div>${statusBadge(item.status)}${isDerived ? '<span class="derived-badge">Automático</span>' : ''}</div><h3>${escapeHTML(item.title)}</h3><p>${escapeHTML(item.notes || item.project_name || 'Sin notas adicionales.')}</p><small>${escapeHTML(item.project_name || (isDerived ? sourceLabel(item.source_type) : 'Personal'))}</small></div>
+            <div class="reminder-copy" role="button" tabindex="0" ${previewAttributes}><div>${statusBadge(item.status)}${isDerived ? '<span class="derived-badge">Automático</span>' : ''}</div><h3>${escapeHTML(item.title)}</h3><p>${escapeHTML(markdownPlain(item.notes) || item.project_name || 'Sin notas adicionales.')}</p><small>${escapeHTML(item.project_name || (isDerived ? sourceLabel(item.source_type) : 'Personal'))}</small></div>
             <div class="reminder-date"><time datetime="${escapeHTML(item.due_at || '')}">${escapeHTML(dateDistance(item.due_at))}</time><small>${escapeHTML(formatDate(item.due_at, { day:'numeric', month:'short', hour: item.due_at && String(item.due_at).length > 10 ? '2-digit' : undefined, minute: item.due_at && String(item.due_at).length > 10 ? '2-digit' : undefined }))}</small></div>
             <div class="reminder-actions">${isDerived
                 ? `<button class="button button-ghost button-small" type="button" data-source-open="${escapeHTML(item.source_type)}" data-id="${Number(item.source_id)}">Abrir origen</button>`
@@ -1488,10 +2355,10 @@
         const action = running
             ? `<button class="button button-danger" type="button" data-timer-stop="${Number(running.id)}">${icon('clock')} Detener temporizador</button>`
             : `<button class="button button-secondary" type="button" data-timer-start>${icon('clock')} Iniciar temporizador</button>`;
-        const content = visible.length ? `<div class="time-layout"><section class="time-list">${visible.map(timeEntryCard).join('')}</section><aside class="time-summary panel panel-padded"><span class="eyebrow">Esta semana</span><div class="time-ring"><strong>${escapeHTML(minutesLabel(total))}</strong><small>registrados</small></div><dl><div><dt>Facturable</dt><dd>${escapeHTML(minutesLabel(billable))}</dd></div><div><dt>Hoy</dt><dd>${escapeHTML(minutesLabel(today.reduce((sum,item) => sum + elapsedMinutes(item),0)))}</dd></div><div><dt>Sesiones</dt><dd>${weekly.length}</dd></div></dl></aside></div>`
-            : emptyState('time_entry', 'Empezá a medir sin complicarte', 'Usá el temporizador mientras trabajás o cargá el tiempo manualmente al terminar.');
-        return `${pageHeading('Ritmo de trabajo', 'Tiempo con <em>contexto</em>.', 'Medí el esfuerzo real por proyecto y comparalo con el valor que genera.', 'time_entry', action)}
-            <div class="finance-metrics">${metricCard('Esta semana', minutesLabel(total), `${weekly.length} sesiones`, 'clock')}${metricCard('Facturable', minutesLabel(billable), total ? `${Math.round(billable/total*100)}% del tiempo` : 'Sin horas todavía', 'wallet')}${metricCard('Hoy', minutesLabel(today.reduce((sum,item) => sum + elapsedMinutes(item),0)), `${today.length} registros`, 'calendar')}</div>
+        const content = visible.length ? `<div class="time-layout"><section class="time-list">${visible.map(timeEntryCard).join('')}</section><aside class="time-summary panel panel-padded"><span class="eyebrow">Esta semana</span><div class="time-ring" style="--share:${total ? Math.round(billable / total * 100) : 0}%"><strong>${escapeHTML(minutesLabel(total))}</strong><small>registrados</small></div><dl><div><dt>Facturable</dt><dd>${escapeHTML(minutesLabel(billable))}</dd></div><div><dt>Hoy</dt><dd>${escapeHTML(minutesLabel(today.reduce((sum,item) => sum + elapsedMinutes(item),0)))}</dd></div><div><dt>Sesiones</dt><dd>${weekly.length}</dd></div></dl></aside></div>`
+            : emptyState('time_entry', 'Empieza a medir sin complicarte', 'Usa el temporizador mientras trabajas o registra el tiempo manualmente al terminar.');
+        return `${pageHeading('Ritmo de trabajo', 'Tiempo con <em>contexto</em>.', 'Mide el esfuerzo real por proyecto y compáralo con el valor que genera.', 'time_entry', action)}
+            <div class="finance-metrics">${metricCard('Esta semana', minutesLabel(total), countLabel(weekly.length,'sesión','sesiones'), 'clock')}${metricCard('Facturable', minutesLabel(billable), total ? `${Math.round(billable/total*100)}% del tiempo` : 'Sin horas todavía', 'wallet')}${metricCard('Hoy', minutesLabel(today.reduce((sum,item) => sum + elapsedMinutes(item),0)), countLabel(today.length,'registro','registros'), 'calendar')}</div>
             ${collectionToolbar('time', visible.length, [['running','En curso'],['billable','Facturable'],['non_billable','No facturable']])}${running ? `<div class="active-timer" role="timer"><span class="timer-pulse"></span><div><small>Temporizador activo</small><strong>${escapeHTML(running.description || running.project_name || 'Trabajo en curso')}</strong></div><output data-running-start="${escapeHTML(running.started_at)}">${escapeHTML(minutesLabel(elapsedMinutes(running)))}</output><button class="button button-danger button-small" type="button" data-timer-stop="${Number(running.id)}">Detener</button></div>` : ''}${content}`;
     }
 
@@ -1535,17 +2402,17 @@
             byCurrency[currency].revenue += bucketValue(bucket,['paid_amount','revenue','income']);
             byCurrency[currency].costs += (bucketValue(bucket,['total_cost','costs']) || bucketValue(bucket,['labor_cost','time_cost']) + bucketValue(bucket,['resource_cost','infrastructure_cost'])) + bucketValue(bucket,['one_time_resource_cost','one_time_cost']);
         });
-        return `<div class="widget-profit-list">${Object.entries(byCurrency).map(([currency,row]) => `<div><span>${escapeHTML(currency)}</span><strong class="${row.revenue-row.costs < 0 ? 'negative' : ''}">${escapeHTML(formatMoney(row.revenue-row.costs,currency))}</strong></div>`).join('')}</div>`;
+        return `<div class="widget-profit-list">${Object.entries(byCurrency).map(([currency,row]) => `<div><span>${escapeHTML(currency)}</span><strong class="${row.revenue-row.costs < 0 ? 'negative' : ''}">${moneyHTML(row.revenue-row.costs,currency)}</strong></div>`).join('')}</div>`;
     }
 
     function renderProfitability(data = []) {
         const projects = profitabilityRows(data);
         const cards = projects.flatMap(project => profitabilityBuckets(project).map(bucket => profitabilityCard(project,bucket)));
         const period = data && !Array.isArray(data) ? data.period : null;
-        const periodLabel = period?.from && period?.to ? `${formatDate(period.from)} al ${formatDate(period.to)}${period.timezone ? ` · ${period.timezone}` : ''}` : 'Mes civil actual';
+        const periodLabel = period?.from && period?.to ? `${shortRange(period.from, period.to)}${period.timezone ? ` · ${period.timezone}` : ''}` : 'Mes civil actual';
         return `<header class="page-heading"><div class="page-heading-copy"><span class="eyebrow">Salud económica · ${escapeHTML(periodLabel)}</span><h1>Rentabilidad con <em>los pies en la tierra</em>.</h1><p>Ingresos cobrados menos tiempo e infraestructura. Cada moneda se mantiene separada para evitar totales engañosos.</p></div><button class="button button-ghost" type="button" data-nav-button="settings">Configurar costo por hora</button></header>
             <aside class="calculation-note" role="note">${icon('alert')}<p><strong>Una estimación para ${escapeHTML(periodLabel)}, no contabilidad.</strong> El costo de tiempo usa el valor guardado en cada registro; los recursos recurrentes se prorratean dentro de ese período y los costos únicos se incluyen si fueron creados durante el mes. Si faltan costos, la tarjeta lo indica.</p></aside>
-            ${cards.length ? `<div class="profitability-grid">${cards.join('')}</div>` : '<div class="empty-state"><div class="empty-inner"><div class="empty-art"><span>$</span></div><h2>Todavía no hay una rentabilidad calculable</h2><p>Vinculá presupuestos, cobros, tiempo y costos de infraestructura a un proyecto comercial.</p><button class="button button-primary" type="button" data-nav-button="time">Registrar tiempo</button></div></div>'}`;
+            ${cards.length ? `<div class="profitability-grid">${cards.join('')}</div>` : '<div class="empty-state"><div class="empty-inner"><div class="empty-art"><span>$</span></div><h2>Todavía no hay una rentabilidad calculable</h2><p>Vincula presupuestos, cobros, tiempo y costos de infraestructura a un proyecto comercial.</p><button class="button button-primary" type="button" data-nav-button="time">Registrar tiempo</button></div></div>'}`;
     }
 
     function profitabilityCard(project,bucket) {
@@ -1558,7 +2425,7 @@
         const profit = bucket.profit_after_one_time !== undefined ? Number(bucket.profit_after_one_time) : bucket.estimated_net_after_one_time !== undefined ? Number(bucket.estimated_net_after_one_time) : bucket.profit !== undefined ? Number(bucket.profit)-oneTime : revenue - costs - oneTime;
         const margin = revenue ? Math.round(profit/revenue*100) : 0;
         const incomplete = Boolean(bucket.incomplete || bucket.uncosted_minutes || bucket.missing_costs);
-        return `<article class="profit-card${profit < 0 ? ' is-negative' : ''}"><header><div><span class="eyebrow">${escapeHTML(currency)}</span><h2>${escapeHTML(project.project_name || project.name || bucket.project_name || 'Proyecto')}</h2></div><span class="profit-margin">${margin}%</span></header><strong class="profit-value">${escapeHTML(formatMoney(profit,currency))}</strong><span class="profit-label">resultado estimado después de costos únicos</span><dl><div><dt>Cobrado</dt><dd>${escapeHTML(formatMoney(revenue,currency))}</dd></div><div><dt>Tiempo</dt><dd>− ${escapeHTML(formatMoney(labor,currency))}</dd></div><div><dt>Infraestructura mensual</dt><dd>− ${escapeHTML(formatMoney(infrastructure,currency))}</dd></div>${oneTime?`<div><dt>Costos únicos</dt><dd>− ${escapeHTML(formatMoney(oneTime,currency))}</dd></div>`:''}</dl>${incomplete ? '<p class="incomplete-note">◌ Faltan costos en algunos registros; el resultado es parcial.</p>' : '<p class="complete-note">✓ Todos los costos vinculados tienen valor.</p>'}</article>`;
+        return `<article class="profit-card${profit < 0 ? ' is-negative' : ''}"><header><div><span class="eyebrow">${escapeHTML(currency)}</span><h2>${escapeHTML(project.project_name || project.name || bucket.project_name || 'Proyecto')}</h2></div><span class="profit-margin">${margin}%</span></header><strong class="profit-value">${moneyHTML(profit,currency)}</strong><span class="profit-label">resultado estimado después de costos únicos</span><dl><div><dt>Cobrado</dt><dd>${moneyHTML(revenue,currency)}</dd></div><div><dt>Tiempo</dt><dd>− ${moneyHTML(labor,currency)}</dd></div><div><dt>Infraestructura mensual</dt><dd>− ${moneyHTML(infrastructure,currency)}</dd></div>${oneTime?`<div><dt>Costos únicos</dt><dd>− ${moneyHTML(oneTime,currency)}</dd></div>`:''}</dl>${incomplete ? '<p class="incomplete-note">◌ Faltan costos en algunos registros; el resultado es parcial.</p>' : '<p class="complete-note">✓ Todos los costos vinculados tienen valor.</p>'}</article>`;
     }
 
     function renderCalendar(data = []) {
@@ -1575,10 +2442,10 @@
         if (!/^\d{4}-\d{2}-\d{2}$/.test(state.calendarDay)) state.calendarDay = dateISO(first);
         const monthLabel = new Intl.DateTimeFormat('es-AR',{month:'long',year:'numeric',timeZone:state.settings?.timezone || undefined}).format(first);
         const selectedEvents = state.calendarEvents.filter(event => event.date === state.calendarDay);
-        return `<header class="page-heading"><div class="page-heading-copy"><span class="eyebrow">Todas tus fechas</span><h1>Un calendario para <em>anticiparte</em>.</h1><p>Tareas, seguimientos, presupuestos, recordatorios, entregas y renovaciones reunidos sin duplicados.</p></div><button class="button button-primary" type="button" data-create="reminder">＋ Nuevo recordatorio</button></header>
-            <div class="calendar-toolbar"><button class="icon-button" type="button" data-calendar-move="-1" aria-label="Mes anterior">←</button><h2>${escapeHTML(monthLabel.charAt(0).toUpperCase()+monthLabel.slice(1))}</h2><button class="icon-button" type="button" data-calendar-move="1" aria-label="Mes siguiente">→</button><button class="button button-ghost button-small" type="button" data-calendar-today>Hoy</button></div>
+        return `<header class="page-heading"><div class="page-heading-copy"><span class="eyebrow">Todas tus fechas</span><h1>Un calendario para <em>anticiparte</em>.</h1><p>Tareas, seguimientos, presupuestos, recordatorios, entregas y renovaciones reunidos sin duplicados.</p></div><button class="button button-primary" type="button" data-create="reminder">${icon('plus')}Nuevo recordatorio</button></header>
+            <div class="calendar-toolbar"><button class="icon-button" type="button" data-calendar-move="-1" aria-label="Mes anterior">${icon('chevronLeft')}</button><h2>${escapeHTML(monthLabel.charAt(0).toUpperCase()+monthLabel.slice(1))}</h2><button class="icon-button" type="button" data-calendar-move="1" aria-label="Mes siguiente">${icon('chevron')}</button><button class="button button-ghost button-small" type="button" data-calendar-today>Hoy</button></div>
             <div class="calendar-layout"><section class="calendar-board" aria-label="Calendario de ${escapeHTML(monthLabel)}"><div class="calendar-weekdays">${labels.map(label => `<span>${label}</span>`).join('')}</div><div class="calendar-grid">${cells.map(date => calendarCell(date,monthIndex)).join('')}</div></section>
-            <aside class="calendar-day-list panel panel-padded"><span class="eyebrow">${escapeHTML(formatDate(state.calendarDay,{weekday:'long',day:'numeric',month:'long'}))}</span><h2>Agenda del día</h2><div>${selectedEvents.length ? selectedEvents.map(calendarEventRow).join('') : '<div class="inline-empty">No hay eventos para este día.</div>'}</div></aside></div>
+            <aside class="calendar-day-list panel panel-padded"><span class="eyebrow">${escapeHTML((d => d.charAt(0).toUpperCase() + d.slice(1))(formatDate(state.calendarDay,{weekday:'long',day:'numeric',month:'long'})))}</span><h2>Agenda del día</h2><div>${selectedEvents.length ? selectedEvents.map(calendarEventRow).join('') : '<div class="inline-empty">No hay eventos para este día.</div>'}</div></aside></div>
             <section class="calendar-agenda-mobile"><h2>Lista del mes</h2>${state.calendarEvents.some(event=>String(event.date).startsWith(`${year}-${String(monthIndex+1).padStart(2,'0')}`)) ? state.calendarEvents.filter(event=>String(event.date).startsWith(`${year}-${String(monthIndex+1).padStart(2,'0')}`)).sort((a,b) => String(a.date).localeCompare(String(b.date))).map(calendarEventRow).join('') : '<div class="inline-empty">No hay eventos este mes.</div>'}</section>`;
     }
 
@@ -1589,7 +2456,7 @@
     }
     function calendarEventRow(event) {
         const source = event.source_type || 'reminder';
-        return `<button class="calendar-event-row" type="button" data-source-open="${escapeHTML(source)}" data-id="${Number(event.source_id)}"><i class="event-${escapeHTML(source)}"></i><span><strong>${escapeHTML(event.title)}</strong><small>${escapeHTML(sourceLabel(source))}${event.project_name ? ` · ${escapeHTML(event.project_name)}` : ''}</small></span><time>${escapeHTML(formatDate(event.date))}</time></button>`;
+        return `<button class="calendar-event-row" type="button" data-source-open="${escapeHTML(source)}" data-id="${Number(event.source_id)}"><i class="event-${escapeHTML(source)}"></i><span><strong>${escapeHTML(event.title)}</strong><small>${escapeHTML(sourceLabel(source))}${event.project_name ? ` · ${escapeHTML(event.project_name)}` : ''}</small></span><time>${escapeHTML(shortDate(event.date))}</time></button>`;
     }
 
     function renderWeeklyReviews(data = {}) {
@@ -1615,9 +2482,9 @@
         const releasesCount = summary ? Number(summary.releases_count||0) : releases.length;
         const current = reviews.find(item => item.week_start === bounds.start);
         const zone = summary?.period?.timezone ? ` · ${summary.period.timezone}` : '';
-        return `${pageHeading('Cierre y aprendizaje', 'Tu semana, <em>en perspectiva</em>.', `${escapeHTML(formatDate(bounds.start))} al ${escapeHTML(formatDate(bounds.end))}${escapeHTML(zone)}. Datos reales para decidir mejor la próxima.`, 'weekly_review', current ? `<button class="button button-ghost" type="button" data-edit="weekly_review" data-id="${Number(current.id)}">Editar esta semana</button>` : '')}
+        return `${pageHeading('Cierre y aprendizaje', 'Tu semana, <em>en perspectiva</em>.', `${escapeHTML(shortRange(bounds.start, bounds.end))}${escapeHTML(zone)}. Datos reales para decidir mejor la próxima.`, 'weekly_review', current ? `<button class="button button-ghost" type="button" data-edit="weekly_review" data-id="${Number(current.id)}">Editar esta semana</button>` : '')}
             <div class="weekly-metrics">${metricCard('Tareas terminadas',tasksCompleted,'En esta semana','check')}${metricCard('Tiempo registrado',minutesLabel(timeMinutes),`${timeEntriesCount} sesiones · ${minutesLabel(billableMinutes)} facturables`,'clock')}${metricCard('Bitácora',devlogsCount,`${releasesCount} entregas o versiones`,'journal')}<article class="metric-card"><div class="metric-top"><span>Cobros</span><span class="metric-icon">${icon('wallet')}</span></div><div class="weekly-money">${paidByCurrency.length ? paidByCurrency.map(value => `<strong>${escapeHTML(value)}</strong>`).join('') : '<strong>Sin cobros</strong>'}</div><div class="metric-caption">Siempre separados por moneda</div></article></div>
-            <div class="weekly-layout"><section class="weekly-prompt panel panel-padded"><span class="eyebrow">Ritual de 10 minutos</span><h2>${current ? 'Esta semana ya tiene una mirada.' : 'Cerrá la semana antes de empezar otra.'}</h2><p>Rescatá lo que salió bien, nombrá los bloqueos y elegí un foco concreto.</p><button class="button button-primary" type="button" ${current ? `data-record-preview="weekly_review" data-id="${Number(current.id)}"` : 'data-create="weekly_review"'}>${current ? 'Ver revisión' : 'Hacer mi revisión'}</button></section><section class="review-history"><h2>Historial</h2>${reviews.length ? reviews.map(reviewCard).join('') : '<div class="inline-empty">Tus cierres semanales aparecerán acá.</div>'}</section></div>`;
+            <div class="weekly-layout"><section class="weekly-prompt panel panel-padded"><span class="eyebrow">Ritual de 10 minutos</span><h2>${current ? 'Esta semana ya tiene una mirada.' : 'Cierra la semana antes de empezar otra.'}</h2><p>Rescata lo que salió bien, nombra los bloqueos y elige un foco concreto.</p><button class="button button-primary" type="button" ${current ? `data-record-preview="weekly_review" data-id="${Number(current.id)}"` : 'data-create="weekly_review"'}>${current ? 'Ver revisión' : 'Hacer mi revisión'}</button></section><section class="review-history"><h2>Historial</h2>${reviews.length ? reviews.map(reviewCard).join('') : '<div class="inline-empty">Tus cierres semanales aparecerán aquí.</div>'}</section></div>`;
     }
     function reviewCard(review) {
         return `<article class="review-card" data-record-preview="weekly_review" data-id="${Number(review.id)}"><header><div role="button" tabindex="0" data-record-preview="weekly_review" data-id="${Number(review.id)}"><small>Semana del</small><h3>${escapeHTML(formatDate(review.week_start,{day:'numeric',month:'long',year:'numeric'}))}</h3></div><span class="review-score" aria-label="Valoración ${clamp(review.rating,1,5)} de 5">${'★'.repeat(clamp(review.rating,1,5))}${'☆'.repeat(5-clamp(review.rating,1,5))}</span><button class="icon-button" type="button" data-edit="weekly_review" data-id="${Number(review.id)}" aria-label="Editar revisión">${icon('more')}</button></header><div class="review-columns"><div><strong>Lo mejor</strong><p>${escapeHTML(review.wins || 'Sin notas.')}</p></div><div><strong>Bloqueos</strong><p>${escapeHTML(review.blockers || 'Ninguno registrado.')}</p></div><div><strong>Próximo foco</strong><p>${escapeHTML(review.next_focus || 'Sin definir.')}</p></div></div><div class="tag-cloud">${asArray(review.tags).map(tag => `<span>#${escapeHTML(tag)}</span>`).join('')}</div></article>`;
@@ -1633,7 +2500,7 @@
             <form class="upload-panel" id="attachment-form" enctype="multipart/form-data"><div class="upload-art">${icon('package')}</div><div class="upload-copy"><h2>Subir un archivo</h2><p>Hasta 10 MiB por archivo y 100 MiB totales como máximo; el servidor puede aplicar límites menores. Admite PDF, imágenes, texto, documentos y ZIP seguros.</p><label class="file-picker"><input type="file" name="file" required><span>Elegir archivo</span><small data-file-name>Ningún archivo elegido</small></label></div><div class="upload-fields"><label><span>Vincular a</span><select name="attachment_target"><option value="general:">Documentación general</option>${attachmentTargets()}</select></label><button class="button button-primary" type="submit">Subir archivo</button><p class="upload-feedback" data-upload-feedback role="status" aria-live="polite"></p></div></form>
             <div class="file-stats"><span>${items.length} ${items.length===1?'archivo':'archivos'}</span><span>${escapeHTML(bytesLabel(used))} utilizados</span></div>
             <div class="toolbar"><label class="filter-search">${icon('search')}<span class="sr-only">Buscar archivos</span><input type="search" value="${escapeHTML(state.filters.files.search)}" placeholder="Buscar por nombre o tipo…" data-file-search></label><label class="select-wrap"><span class="sr-only">Filtrar por entidad</span><select data-file-entity><option value="all">Todas las vinculaciones</option>${optionList([['general','General'],['projects','Proyectos'],['tasks','Tareas'],['clients','Clientes'],['leads','Oportunidades'],['ideas','Ideas'],['devlogs','Bitácora'],['budgets','Presupuestos'],['payments','Cobros'],['releases','Entregas'],['resources','Recursos'],['reminders','Recordatorios'],['time_entries','Tiempo'],['weekly_reviews','Revisiones']],state.filters.files.status)}</select></label><label class="select-wrap"><span class="sr-only">Filtrar por proyecto</span><select data-file-project><option value="all">Todos los proyectos</option>${optionList(projects.map(project => [project.id,project.name]),projectFilter)}</select></label><span class="result-count">${visible.length} resultados</span></div>
-            ${visible.length ? `<div class="file-grid">${visible.map(fileCard).join('')}</div>` : (items.length ? noFilterResults('files') : '<div class="empty-state"><div class="empty-inner"><div class="empty-art"><span>↑</span></div><h2>Tu biblioteca está vacía</h2><p>Subí el primer documento y vinculalo a su proyecto.</p><button class="button button-primary" type="button" data-focus-upload>Elegir archivo</button></div></div>')}`;
+            ${visible.length ? `<div class="file-grid">${visible.map(fileCard).join('')}</div>` : (items.length ? noFilterResults('files') : '<div class="empty-state"><div class="empty-inner"><div class="empty-art"><span>↑</span></div><h2>Tu biblioteca está vacía</h2><p>Sube el primer documento y vincúlalo a su proyecto.</p><button class="button button-primary" type="button" data-focus-upload>Elegir archivo</button></div></div>')}`;
     }
     function attachmentTargets() {
         const definitions = [['projects','Proyecto'],['tasks','Tarea'],['clients','Cliente'],['leads','Oportunidad'],['ideas','Idea'],['devlogs','Bitácora'],['budgets','Presupuesto'],['payments','Cobro'],['releases','Entrega'],['resources','Recurso'],['reminders','Recordatorio'],['time_entries','Tiempo'],['weekly_reviews','Revisión']];
@@ -1673,27 +2540,36 @@
         const visible = filtered(items,'tags');
         const totalUses = items.reduce((sum,item)=>sum+Number(item.usage_count||0),0);
         return `${pageHeading('Lenguaje compartido', 'Etiquetas para <em>conectar el contexto</em>.', `${items.length} etiquetas y ${totalUses} usos en tu espacio. Las sugerencias aparecen al editar registros.`, 'tag')}${collectionToolbar('tags',visible.length)}
-            ${visible.length ? `<div class="tag-catalog">${visible.map(tag => `<article class="tag-card" style="--tag-color:${safeColor(tag.color,'#748c76')}" data-record-preview="tag" data-id="${Number(tag.id)}"><span class="catalog-tag" role="button" tabindex="0" data-record-preview="tag" data-id="${Number(tag.id)}">#${escapeHTML(tag.name)}</span><strong>${Number(tag.usage_count||0)} usos</strong><div><button class="text-button" type="button" data-edit="tag" data-id="${Number(tag.id)}">Editar</button><button class="text-button danger-text" type="button" data-delete="tag" data-id="${Number(tag.id)}">Eliminar</button></div></article>`).join('')}</div>` : emptyState('tag','Creá tu vocabulario','Usá etiquetas breves para cruzar proyectos, tareas, clientes y notas sin crear carpetas de más.')}`;
+            ${visible.length ? `<div class="tag-catalog">${visible.map(tag => `<article class="tag-card" style="--tag-color:${safeColor(tag.color,'#748c76')}" data-record-preview="tag" data-id="${Number(tag.id)}"><span class="catalog-tag" role="button" tabindex="0" data-record-preview="tag" data-id="${Number(tag.id)}">#${escapeHTML(tag.name)}</span><strong>${Number(tag.usage_count||0)} usos</strong><div><button class="text-button" type="button" data-edit="tag" data-id="${Number(tag.id)}">Editar</button><button class="text-button danger-text" type="button" data-delete="tag" data-id="${Number(tag.id)}">Eliminar</button></div></article>`).join('')}</div>` : emptyState('tag','Crea tu vocabulario','Usa etiquetas breves para cruzar proyectos, tareas, clientes y notas sin crear carpetas de más.')}`;
     }
 
     function renderDashboardSettings(settings = {}) {
         const selected = sanitizeWidgetOrder(settings.dashboard_widgets);
         const disabled = Object.keys(WIDGETS).filter(key => !selected.includes(key));
         const ordered = [...selected,...disabled];
-        return `<header class="page-heading"><div class="page-heading-copy"><span class="eyebrow">Un inicio a tu medida</span><h1>Tu panorama, <em>en tu orden</em>.</h1><p>Elegí qué bloques aparecen y movelos según la forma en que trabajás.</p></div><button class="button button-ghost" type="button" data-dashboard-reset>Restaurar diseño</button></header>
-            <form class="widget-settings panel panel-padded" id="dashboard-settings-form"><header><div><h2>Bloques del panorama</h2><p>El orden de esta lista es el que verás al entrar.</p></div><span>${selected.length} visibles</span></header><ol>${ordered.map((key,index) => `<li data-widget-key="${key}" class="${selected.includes(key)?'':'is-disabled'}"><span class="widget-handle" aria-hidden="true">☰</span><label><input type="checkbox" name="dashboard_widgets" value="${key}"${selected.includes(key)?' checked':''}><span><strong>${escapeHTML(WIDGETS[key])}</strong><small>${selected.includes(key)?'Visible en el panorama':'Oculto'}</small></span></label><div><button class="icon-button" type="button" data-widget-move="-1" aria-label="Subir ${escapeHTML(WIDGETS[key])}"${index===0?' disabled':''}>↑</button><button class="icon-button" type="button" data-widget-move="1" aria-label="Bajar ${escapeHTML(WIDGETS[key])}"${index===ordered.length-1?' disabled':''}>↓</button></div></li>`).join('')}</ol><footer><button class="button button-primary" type="submit">Guardar panorama</button><p role="status" aria-live="polite" data-settings-feedback></p></footer></form>`;
+        return `<header class="page-heading"><div class="page-heading-copy"><span class="eyebrow">Un dashboard a tu medida</span><h1>Tu dashboard, <em>en tu orden</em>.</h1><p>Elige qué bloques aparecen y muévelos según tu forma de trabajar.</p></div><button class="button button-ghost" type="button" data-dashboard-reset>Restaurar diseño</button></header>
+            <form class="widget-settings panel panel-padded" id="dashboard-settings-form"><header><div><h2>Bloques del dashboard</h2><p>El orden de esta lista es el que verás al entrar.</p></div><span>${selected.length} visibles</span></header><ol>${ordered.map((key,index) => `<li data-widget-key="${key}" class="${selected.includes(key)?'':'is-disabled'}"><span class="widget-handle" aria-hidden="true">☰</span><label><input type="checkbox" name="dashboard_widgets" value="${key}"${selected.includes(key)?' checked':''}><span><strong>${escapeHTML(WIDGETS[key])}</strong><small>${selected.includes(key)?'Visible en el dashboard':'Oculto'}</small></span></label><div><button class="icon-button" type="button" data-widget-move="-1" aria-label="Subir ${escapeHTML(WIDGETS[key])}"${index===0?' disabled':''}>↑</button><button class="icon-button" type="button" data-widget-move="1" aria-label="Bajar ${escapeHTML(WIDGETS[key])}"${index===ordered.length-1?' disabled':''}>↓</button></div></li>`).join('')}</ol><footer><button class="button button-primary" type="submit">Guardar dashboard</button><p role="status" aria-live="polite" data-settings-feedback></p></footer></form>`;
     }
 
     function renderSettings(settings = {}) {
         const reminderDays = Array.isArray(settings.reminder_days) ? settings.reminder_days.map(Number) : [Number(settings.reminder_days ?? 7)];
-        return `<header class="page-heading"><div class="page-heading-copy"><span class="eyebrow">Preferencias personales</span><h1>CodePanel habla <em>tu idioma</em>.</h1><p>Ajustá cómo se muestran fechas, dinero, semanas, recordatorios y apariencia.</p></div></header>
+        return `<header class="page-heading"><div class="page-heading-copy"><span class="eyebrow">Preferencias personales</span><h1>CodePanel habla <em>tu idioma</em>.</h1><p>Ajusta cómo se muestran fechas, dinero, semanas, recordatorios y apariencia.</p></div></header>
             <form class="settings-form" id="settings-form"><section class="settings-section panel panel-padded"><header><span>${icon('wallet')}</span><div><h2>Trabajo y dinero</h2><p>Valores predeterminados para nuevos registros y cálculos.</p></div></header><div class="settings-grid">${selectField('default_currency','Moneda predeterminada',settings.default_currency||'ARS',[['ARS','ARS — Peso argentino'],['USD','USD — Dólar'],['EUR','EUR — Euro']],{blank:false})}${textField('default_hourly_cost','Costo por hora',settings.default_hourly_cost??0,{type:'number',min:0,step:.01,hint:'para estimar rentabilidad'})}</div></section>
             <section class="settings-section panel panel-padded"><header><span>${icon('calendar')}</span><div><h2>Fechas y agenda</h2><p>Las fechas civiles no cambian de día; las horas se convierten a tu zona.</p></div></header><div class="settings-grid">${selectField('date_format','Formato de fecha',settings.date_format||'d/m/Y',[['d/m/Y','DD/MM/AAAA'],['m/d/Y','MM/DD/AAAA'],['Y-m-d','AAAA-MM-DD']],{blank:false})}${textField('timezone','Zona horaria',settings.timezone||Intl.DateTimeFormat().resolvedOptions().timeZone,{placeholder:'America/Argentina/Buenos_Aires',required:true})}${selectField('week_start','La semana empieza',settings.week_start||'monday',[['monday','Lunes'],['sunday','Domingo']],{blank:false})}</div><fieldset class="reminder-days"><legend>Avisarme con anticipación</legend>${[1,3,7,14,30].map(day=>`<label><input type="checkbox" name="reminder_days" value="${day}"${reminderDays.includes(day)?' checked':''}><span>${day} ${day===1?'día':'días'}</span></label>`).join('')}</fieldset></section>
-            <section class="settings-section panel panel-padded"><header><span>${icon('spark')}</span><div><h2>Apariencia</h2><p>Elegí un tema fijo o seguí la preferencia del dispositivo.</p></div></header><div class="theme-options">${[['system','Sistema'],['light','Claro'],['night','Noche']].map(([value,label])=>`<label><input type="radio" name="theme" value="${value}"${(settings.theme||'system')===value?' checked':''}><span><i class="theme-preview is-${value}"></i><strong>${label}</strong></span></label>`).join('')}</div></section><footer class="settings-footer"><button class="button button-primary" type="submit">Guardar configuración</button><p role="status" aria-live="polite" data-settings-feedback></p></footer></form>`;
+            <section class="settings-section panel panel-padded"><header><span>${icon('sun')}</span><div><h2>Apariencia</h2><p>Elige un tema fijo o sigue la preferencia del dispositivo.</p></div></header><div class="theme-options">${[['system','Sistema'],['light','Claro'],['night','Noche']].map(([value,label])=>`<label><input type="radio" name="theme" value="${value}"${(settings.theme||'system')===value?' checked':''}><span><i class="theme-preview is-${value}"></i><strong>${label}</strong></span></label>`).join('')}</div></section><footer class="settings-footer"><button class="button button-primary" type="submit">Guardar configuración</button><p role="status" aria-live="polite" data-settings-feedback></p></footer></form>
+            <section class="settings-section panel panel-padded settings-export" aria-labelledby="export-title"><header><span>${icon('receipt')}</span><div><h2 id="export-title">Exportar datos</h2><p>Archivos generados con los datos de tu cuenta. No se modifica nada.</p></div></header>
+                <div class="export-grid">
+                    <button class="export-option" type="button" data-export="time">${icon('clock')}<span><strong>Tiempo</strong><small>CSV para tu hoja de cálculo o para facturar</small></span></button>
+                    <button class="export-option" type="button" data-export="payments">${icon('wallet')}<span><strong>Cobros</strong><small>CSV con importes, medios y referencias</small></span></button>
+                    <button class="export-option" type="button" data-export="calendar">${icon('calendar')}<span><strong>Calendario</strong><small>Archivo .ics para Google, Apple u Outlook</small></span></button>
+                    <button class="export-option" type="button" data-export="backup">${icon('package')}<span><strong>Copia completa</strong><small>JSON con todos tus registros</small></span></button>
+                </div>
+            </section>
+            ${apiTokensSection()}`;
     }
 
     function noFilterResults(route) {
-        return `<div class="empty-state"><div class="empty-inner"><div class="empty-art"><span>⌕</span></div><h2>No encontramos coincidencias</h2><p>Probá con otra palabra o quitá alguno de los filtros.</p><button class="button button-ghost" type="button" data-clear-filters="${route}">Limpiar filtros</button></div></div>`;
+        return `<div class="empty-state"><div class="empty-inner"><div class="empty-art"><span>⌕</span></div><h2>No encontramos coincidencias</h2><p>Prueba con otra palabra o quita alguno de los filtros.</p><button class="button button-ghost" type="button" data-clear-filters="${route}">Limpiar filtros</button></div></div>`;
     }
 
     function optionList(options, selected) {
@@ -1702,7 +2578,7 @@
     function textField(name, label, value = '', { type = 'text', placeholder = '', required = false, wide = false, hint = '', min = '', max = '', step = '' } = {}) {
         return `<div class="form-field${wide ? ' is-wide' : ''}"><label for="field-${name}">${escapeHTML(label)}${hint ? ` <span>${escapeHTML(hint)}</span>` : ''}</label><input id="field-${name}" name="${name}" type="${type}" value="${escapeHTML(value ?? '')}" placeholder="${escapeHTML(placeholder)}"${required ? ' required' : ''}${min !== '' ? ` min="${escapeHTML(min)}"` : ''}${max !== '' ? ` max="${escapeHTML(max)}"` : ''}${step !== '' ? ` step="${escapeHTML(step)}"` : ''}></div>`;
     }
-    function textareaField(name, label, value = '', placeholder = '', { required = false, hint = '' } = {}) {
+    function textareaField(name, label, value = '', placeholder = '', { required = false, hint = 'admite Markdown' } = {}) {
         return `<div class="form-field is-wide"><label for="field-${name}">${escapeHTML(label)}${hint ? ` <span>${escapeHTML(hint)}</span>` : ''}</label><textarea id="field-${name}" name="${name}" placeholder="${escapeHTML(placeholder)}"${required ? ' required' : ''}>${escapeHTML(value ?? '')}</textarea></div>`;
     }
     function selectField(name, label, selected, options, { wide = false, blank = '', required = false } = {}) {
@@ -1733,6 +2609,10 @@
 
     async function formFields(entity, item = {}) {
         const tagCatalog = await getCollection('tags').catch(() => []);
+        if (entity === 'snippet') {
+            const projects = await getCollection('projects').catch(() => []);
+            return snippetFields(item, projects.filter(project => project.status !== 'archived' || Number(project.id) === Number(item.project_id)), tagCatalog);
+        }
         if (entity === 'project') {
             const clients = await getCollection('clients').catch(() => []);
             const type = projectType(item);
@@ -1744,7 +2624,7 @@
                     <div class="project-type-options">
                         <label class="project-type-option">
                             <input id="project-type-personal" type="radio" name="project_type" value="personal" aria-controls="project-commercial-fields" aria-describedby="project-type-note"${type === 'personal' ? ' checked' : ''}>
-                            <span class="project-type-icon">${icon('spark')}</span>
+                            <span class="project-type-icon">${icon('user')}</span>
                             <span class="project-type-copy"><strong>Personal</strong><small>Una idea propia, sin cliente ni fecha de entrega.</small></span>
                         </label>
                         <label class="project-type-option">
@@ -1753,28 +2633,28 @@
                             <span class="project-type-copy"><strong>Comercial</strong><small>Trabajo para vender, cotizar o entregar a un cliente.</small></span>
                         </label>
                     </div>
-                    <small class="project-type-note" id="project-type-note">${isCommercial ? 'Cliente y fecha son opcionales: completalos cuando tenga sentido.' : 'Al guardar como personal se quitarán el cliente y la fecha objetivo.'}</small>
+                    <small class="project-type-note" id="project-type-note">${isCommercial ? 'Cliente y fecha son opcionales: complétalos cuando tenga sentido.' : 'Al guardar como personal se quitarán el cliente y la fecha objetivo.'}</small>
                 </fieldset>
-                ${textareaField('description','Descripción',item.description,'¿Qué estás construyendo y qué querés lograr?')}
+                ${textareaField('description','Descripción',item.description,'¿Qué estás construyendo y qué quieres conseguir?')}
                 ${selectField('status','Estado',item.status || 'planned',[['planned','Por empezar'],['active','En marcha'],['on_hold','En pausa'],['completed','Terminado'],['archived','Archivado']],{blank:false})}
                 ${selectField('priority','Prioridad',item.priority || 'medium',[['low','Baja'],['medium','Media'],['high','Alta'],['urgent','Urgente']],{blank:false})}
-                ${rangeField('progress','Progreso en porcentaje',item.progress ?? 0)}
+                ${rangeField('progress','Progreso',item.progress ?? 0)}
                 <div class="project-commercial-fields is-wide" id="project-commercial-fields" data-commercial-fields${isCommercial ? '' : ' hidden'}>
-                    <div class="project-commercial-heading"><strong>Datos comerciales</strong><small>Son opcionales; completalos cuando el acuerdo esté definido.</small></div>
+                    <div class="project-commercial-heading"><strong>Datos comerciales</strong><small>Son opcionales; complétalos cuando el acuerdo esté definido.</small></div>
                     <div class="form-field"><label for="field-due_date">Fecha objetivo</label><input id="field-due_date" name="due_date" type="date" value="${escapeHTML(item.due_date ?? '')}"${isCommercial ? '' : ' disabled'}></div>
                     <div class="form-field"><label for="field-client_id">Cliente</label><select id="field-client_id" name="client_id"${isCommercial ? '' : ' disabled'}><option value="">Sin asignar</option>${optionList(clients.map(client => [client.id, `${client.name}${client.company ? ` · ${client.company}` : ''}`]), item.client_id)}</select></div>
                 </div>
                 ${textField('tech_stack','Tecnologías',asArray(item.tech_stack).join(', '),{placeholder:'PHP, MySQL, JavaScript',wide:true,hint:'separadas por comas'})}
                 ${tagsField(item.tags,tagCatalog,{placeholder:'cliente, portfolio, mantenimiento'})}
-                ${textField('repository_url','Repositorio',item.repository_url,{type:'url',placeholder:'https://github.com/…',wide:true})}
-                ${textField('live_url','Sitio publicado',item.live_url,{type:'url',placeholder:'https://…',wide:true})}
+                ${textField('repository_url','Repositorio',item.repository_url,{type:'url',placeholder:'https://github.com/…'})}
+                ${textField('live_url','Sitio publicado',item.live_url,{type:'url',placeholder:'https://…'})}
                 <div class="form-field is-wide"><label>Color del proyecto</label><div class="color-options">${PROJECT_COLORS.map((color,index) => `<label class="color-option"><input type="radio" name="color" value="${color}"${safeColor(item.color,PROJECT_COLORS[0]).toLowerCase() === color.toLowerCase() || (!item.color && index === 0) ? ' checked' : ''}><span style="--color:${color}"></span></label>`).join('')}</div></div>
             </div>`;
         }
         if (entity === 'devlog') {
             const projects = await getCollection('projects').catch(() => []);
             return `<div class="form-grid">
-                ${textField('title','Título de la entrada',item.title,{placeholder:'Ej. Cerré el flujo de registro',required:true,wide:true})}
+                ${textField('title','Título de la entrada',item.title,{placeholder:'Ej. Flujo de registro cerrado',required:true,wide:true})}
                 ${selectField('project_id','Proyecto',item.project_id,projects.map(project => [project.id,project.name]),{blank:'Sin proyecto'})}
                 ${textField('entry_date','Fecha',item.entry_date || todayISO(),{type:'date',required:true})}
                 ${selectField('entry_type','Tipo de entrada',item.entry_type || 'progress',Object.entries(DEVLOG_TYPES),{blank:false})}
@@ -1800,7 +2680,7 @@
         if (entity === 'payment') {
             const budgets = await getCollection('budgets').catch(() => []);
             return `<div class="form-grid">
-                ${selectField('budget_id','Presupuesto',item.budget_id,budgets.map(budget => [budget.id,`${budget.title} · ${formatMoney(budget.balance, budget.currency)} pendiente`]),{wide:true,blank:'Elegí un presupuesto',required:true})}
+                ${selectField('budget_id','Presupuesto',item.budget_id,budgets.map(budget => [budget.id,`${budget.title} · ${formatMoney(budget.balance, budget.currency)} pendiente`]),{wide:true,blank:'Elige un presupuesto',required:true})}
                 ${textField('amount','Importe cobrado',item.amount ?? '',{type:'number',min:0.01,max:999999999.99,step:0.01,required:true})}
                 ${textField('paid_at','Fecha del cobro',item.paid_at || todayISO(),{type:'date',required:true})}
                 ${selectField('method','Medio de pago',item.method || 'transfer',Object.entries(PAYMENT_METHODS),{blank:false})}
@@ -1812,7 +2692,7 @@
             const projects = await getCollection('projects').catch(() => []);
             return `<div class="form-grid">
                 ${textField('title','Nombre de la entrega',item.title,{placeholder:'Ej. Primer release público',required:true,wide:true})}
-                ${selectField('project_id','Proyecto',item.project_id,projects.map(project => [project.id,project.name]),{wide:true,blank:'Elegí un proyecto',required:true})}
+                ${selectField('project_id','Proyecto',item.project_id,projects.map(project => [project.id,project.name]),{wide:true,blank:'Elige un proyecto',required:true})}
                 ${textField('version','Versión',item.version,{placeholder:'v1.0.0'})}
                 ${selectField('kind','Clase',item.kind || 'version',Object.entries(RELEASE_KINDS),{blank:false})}
                 ${selectField('environment','Entorno',item.environment || 'production',[['development','Desarrollo'],['staging','Pruebas / staging'],['production','Producción'],['client','Cliente']],{blank:false})}
@@ -1826,7 +2706,7 @@
         if (entity === 'resource') {
             const projects = await getCollection('projects').catch(() => []);
             return `<div class="form-grid">
-                <aside class="form-security-note is-wide" role="note">${icon('alert')}<span><strong>No guardes secretos acá.</strong> Evitá contraseñas, tokens, claves privadas y credenciales en todos los campos.</span></aside>
+                <aside class="form-security-note is-wide" role="note">${icon('alert')}<span><strong>No guardes secretos aquí.</strong> Evita contraseñas, tokens, claves privadas y credenciales en todos los campos.</span></aside>
                 ${textField('name','Nombre del recurso',item.name,{placeholder:'Ej. Dominio principal',required:true,wide:true})}
                 ${selectField('resource_type','Tipo',item.resource_type || 'service',Object.entries(RESOURCE_TYPES),{blank:false})}
                 ${textField('provider','Proveedor',item.provider,{placeholder:'Empresa o plataforma'})}
@@ -1834,6 +2714,7 @@
                 ${selectField('environment','Entorno',item.environment || 'production',[['development','Desarrollo'],['staging','Pruebas / staging'],['production','Producción'],['shared','Compartido']],{blank:false})}
                 ${selectField('status','Estado',item.status || 'active',[['active','Activo'],['attention','Requiere atención'],['inactive','Inactivo']],{blank:false})}
                 ${textField('url','URL de acceso público',item.url,{type:'url',placeholder:'https://…',wide:true,hint:'sin tokens ni credenciales'})}
+                ${feature('credential_refs') ? textField('credential_ref','Dónde está la credencial',item.credential_ref,{placeholder:'1Password → Atlas → Producción',wide:true,hint:'solo la referencia, nunca la clave'}) : ''}
                 ${textField('renewal_date','Fecha de renovación',item.renewal_date,{type:'date'})}
                 ${textField('cost','Costo',item.cost ?? 0,{type:'number',min:0,max:999999999.99,step:0.01})}
                 ${selectField('currency','Moneda',item.currency || 'ARS',[['ARS','ARS'],['USD','USD'],['EUR','EUR']],{blank:false})}
@@ -1845,7 +2726,7 @@
         if (entity === 'reminder') {
             const projects = await getCollection('projects').catch(() => []);
             return `<div class="form-grid">
-                ${textField('title','Qué querés recordar',item.title,{placeholder:'Ej. Renovar el dominio',required:true,wide:true})}
+                ${textField('title','Qué quieres recordar',item.title,{placeholder:'Ej. Renovar el dominio',required:true,wide:true})}
                 ${selectField('project_id','Proyecto',item.project_id,projects.map(project=>[project.id,project.name]),{blank:'Recordatorio personal'})}
                 ${textField('due_at','Fecha y hora',utcToDateTimeLocal(item.due_at || new Date(Date.now()+86400000).toISOString()),{type:'datetime-local',required:true})}
                 ${selectField('priority','Prioridad',item.priority||'medium',[['low','Baja'],['medium','Media'],['high','Alta']],{blank:false})}
@@ -1858,8 +2739,8 @@
             const [projects,tasks] = await Promise.all([getCollection('projects').catch(()=>[]),getCollection('tasks').catch(()=>[])]);
             const timerMode = Boolean(item.timer_start);
             return `<div class="form-grid">
-                ${timerMode ? '<input type="hidden" name="timer_start" value="1"><aside class="form-security-note is-wide" role="note">'+icon('clock')+'<span><strong>El reloj empezará al guardar.</strong> Podés cerrar CodePanel: el inicio queda guardado en el servidor.</span></aside>' : ''}
-                ${textField('description',timerMode?'En qué vas a trabajar':'Qué hiciste',item.description,{placeholder:'Ej. Implementar el flujo de acceso',required:true,wide:true})}
+                ${timerMode ? '<input type="hidden" name="timer_start" value="1"><aside class="form-security-note is-wide" role="note">'+icon('clock')+'<span><strong>El reloj empezará al guardar.</strong> Puedes cerrar CodePanel: el inicio queda guardado en el servidor.</span></aside>' : ''}
+                ${textField('description',timerMode?'En qué vas a trabajar':'Qué has hecho',item.description,{placeholder:'Ej. Implementar el flujo de acceso',required:true,wide:true})}
                 ${selectField('project_id','Proyecto',item.project_id,projects.map(project=>[project.id,project.name]),{blank:'Sin proyecto'})}
                 ${selectField('task_id','Tarea',item.task_id,tasks.filter(task=>task.status!=='done'||Number(task.id)===Number(item.task_id)).map(task=>[task.id,`${task.title}${task.project_name?' · '+task.project_name:''}`]),{blank:'Sin tarea'})}
                 ${textField('work_date','Fecha de trabajo',item.work_date||todayISO(),{type:'date',required:true})}
@@ -1875,7 +2756,7 @@
                 ${textareaField('wins','Qué salió bien',item.wins,'Avances, decisiones acertadas, pequeñas victorias…')}
                 ${textareaField('blockers','Qué te bloqueó',item.blockers,'Dudas, interrupciones, problemas técnicos…')}
                 ${textareaField('next_focus','Foco de la próxima semana',item.next_focus,'Una prioridad concreta que ordene el resto…')}
-                ${rangeField('rating','Cómo sentís la semana',item.rating??3,1,5)}
+                ${rangeField('rating','Cómo ha ido la semana',item.rating??3,1,5)}
                 ${tagsField(item.tags,tagCatalog,{placeholder:'buena-semana, foco, aprendizaje'})}
             </div>`;
         }
@@ -1927,6 +2808,7 @@
             ${selectField('project_id','Proyecto',item.project_id,projects.filter(project => project.status !== 'archived').map(project => [project.id,project.name]))}
             ${textField('due_date','Fecha límite',item.due_date,{type:'date'})}
             ${textField('assignee','Responsable',item.assignee,{placeholder:'Yo, compañero…',wide:true})}
+            ${taskPlanningFields(item)}
             ${tagsField(item.tags,tagCatalog,{placeholder:'frontend, bug, urgente'})}
         </div>`;
     }
@@ -1940,7 +2822,7 @@
         fields.querySelectorAll('input, select, textarea').forEach(field => { field.disabled = !isCommercial; });
         const note = root.querySelector('#project-type-note');
         if (note) note.textContent = isCommercial
-            ? 'Cliente y fecha son opcionales: completalos cuando tenga sentido.'
+            ? 'Cliente y fecha son opcionales: complétalos cuando tenga sentido.'
             : 'Al guardar como personal se quitarán el cliente y la fecha objetivo.';
     }
 
@@ -1948,6 +2830,9 @@
         if (!ENTITY_ROUTE[entity]) return;
         closeDropdowns();
         let item = prefill || {};
+        if (entity === 'weekly_review' && id === null && !prefill) {
+            try { item = await weeklyReviewPrefill(); } catch { item = {}; }
+        }
         if (id !== null && !prefill) {
             try {
                 const rows = await getCollection(ENTITY_ROUTE[entity]);
@@ -1974,7 +2859,7 @@
             task: ['description','project_id','assignee','due_date'],
             devlog: ['project_id','content'], budget: ['client_id','project_id','valid_until','notes'],
             payment: ['reference','notes'], release: ['version','release_date','url','notes'],
-            resource: ['project_id','provider','url','renewal_date','notes'],
+            resource: ['project_id','provider','url','renewal_date','notes','credential_ref'], snippet: ['project_id','language'],
             reminder: ['project_id','notes'], time_entry: ['project_id','task_id'], weekly_review: ['wins','blockers','next_focus'],
         }[entity] || [];
         nullable.forEach(field => { if (raw[field] === '' || raw[field] === undefined) raw[field] = null; });
@@ -1987,7 +2872,13 @@
             raw.effort = Number(raw.effort); raw.impact = Number(raw.impact); raw.tags = asArray(raw.tags).slice(0,30); raw.archived = Boolean(raw.archived);
         } else if (entity === 'lead') { raw.value = Number(raw.value || 0); raw.tags = asArray(raw.tags).slice(0,30); }
         else if (entity === 'client') raw.tags = asArray(raw.tags).slice(0,30);
-        else if (entity === 'task') { raw.project_id = raw.project_id ? Number(raw.project_id) : null; raw.tags = asArray(raw.tags).slice(0,30); }
+        else if (entity === 'task') {
+            raw.project_id = raw.project_id ? Number(raw.project_id) : null; raw.tags = asArray(raw.tags).slice(0,30);
+            const checklist = readChecklistEditor();
+            if (checklist !== null) raw.checklist = checklist;
+            if ('estimated_hours' in raw) { const hours = Number(String(raw.estimated_hours).replace(',', '.')); raw.estimated_minutes = hours > 0 ? Math.round(hours * 60) : null; delete raw.estimated_hours; }
+        }
+        else if (entity === 'snippet') { raw.project_id = raw.project_id ? Number(raw.project_id) : null; raw.tags = asArray(raw.tags).slice(0,30); }
         else if (entity === 'devlog') { raw.project_id = raw.project_id ? Number(raw.project_id) : null; raw.minutes_spent = Number(raw.minutes_spent || 0); raw.tags = asArray(raw.tags).slice(0,30); }
         else if (entity === 'budget') { raw.client_id = raw.client_id ? Number(raw.client_id) : null; raw.project_id = raw.project_id ? Number(raw.project_id) : null; raw.amount = Number(raw.amount || 0); raw.tags = asArray(raw.tags).slice(0,30); }
         else if (entity === 'payment') { raw.budget_id = Number(raw.budget_id); raw.amount = Number(raw.amount); }
@@ -2030,14 +2921,28 @@
             const body = serializeEntityForm(entity);
             const timerStart = Boolean(body._timer_start); delete body._timer_start;
             const payload = timerStart ? await api.post('time_entries/timer/start', body) : (id === null ? await api.post(route, body) : await api.patch(`${route}/${id}`, body));
+            const back = state.formReturn; state.formReturn = null;
             dom.entityDialog.close();
             invalidate(route, ...relatedCollections(entity));
-            toast(id === null ? `${capitalize(ENTITY_NAMES[entity])} creado` : 'Cambios guardados', payload.message || 'Tu espacio ya está actualizado.');
-            await navigate(state.route, { force: true });
+            toast(id === null ? `${capitalize(ENTITY_NAMES[entity])} ${FEMININE_ENTITIES.has(entity) ? 'creada' : 'creado'}` : 'Cambios guardados', String(payload.data?.title || payload.data?.name || payload.data?.description || '').slice(0, 80) || 'Tu espacio ya está actualizado.');
+            await refreshView();
+            await returnToPreview(back);
         } catch (error) {
             showFormErrors(error.errors);
-            toast('Revisá los datos', error.message, 'error');
+            toast('Revisa los datos', error.message, 'error');
         } finally { button.disabled = false; button.innerHTML = old; }
+    }
+
+    // Recuerda la ficha (proyecto o registro) desde la que se abrió un formulario para volver a ella al guardar o cancelar.
+    function rememberPreview() {
+        if (dom.projectPreviewDialog?.open && state.projectPreview.id) return { entity: 'project', id: Number(state.projectPreview.id) };
+        if (dom.recordPreviewDialog?.open && state.recordPreview?.entity && state.recordPreview?.id) return { entity: state.recordPreview.entity, id: Number(state.recordPreview.id) };
+        return null;
+    }
+    async function returnToPreview(back) {
+        if (!back) return;
+        if (back.entity === 'project') await openProjectPreview(back.id, { quiet: true });
+        else await openRecordPreview(back.entity, back.id, { quiet: true });
     }
 
     const capitalize = value => String(value).charAt(0).toUpperCase() + String(value).slice(1);
@@ -2076,10 +2981,14 @@
         if (!accepted) return;
         try {
             await api.delete(`${ENTITY_ROUTE[entity]}/${Number(id)}`);
+            const back = closeDialog ? state.formReturn : null;
+            if (closeDialog) state.formReturn = null;
             if (closeDialog && dom.entityDialog.open) dom.entityDialog.close();
             invalidate(ENTITY_ROUTE[entity], ...relatedCollections(entity));
-            toast(`${capitalize(ENTITY_NAMES[entity])} eliminado`, 'El registro ya no aparece en tu espacio.');
-            await navigate(state.route, { force: true });
+            toast(`${capitalize(ENTITY_NAMES[entity])} ${FEMININE_ENTITIES.has(entity) ? 'eliminada' : 'eliminado'}`, 'El registro ya no aparece en tu espacio.');
+            await refreshView();
+            const deletedItself = back && back.entity === entity && Number(back.id) === Number(id);
+            if (!deletedItself) await returnToPreview(back);
         } catch (error) { toast('No pudimos eliminarlo', error.message, 'error'); }
     }
 
@@ -2099,13 +3008,19 @@
             const task = tasks.find(item => Number(item.id) === Number(id));
             if (!task) return;
             const status = task.status === 'done' ? 'todo' : 'done';
+            // Respuesta inmediata: la casilla y la fila cambian antes de que conteste el servidor.
+            document.querySelectorAll(`[data-task-toggle="${Number(id)}"]`).forEach(button => {
+                button.classList.toggle('is-done', status === 'done');
+                button.innerHTML = status === 'done' ? icon('check') : '';
+                button.closest('.task-row, .project-preview-task')?.classList.toggle('is-done', status === 'done');
+            });
             await api.patch(`tasks/${Number(id)}`, { status });
             invalidate('tasks','attention');
             toast(status === 'done' ? 'Tarea completada' : 'Tarea reabierta', status === 'done' ? 'Buen avance. Seguimos.' : 'Volvió a tu lista.');
             const previewId = dom.projectPreviewDialog?.open ? Number(state.projectPreview.id) : 0;
             if (previewId) await openProjectPreview(previewId, { quiet: true });
-            else await navigate(state.route, { force: true });
-        } catch (error) { toast('No pudimos actualizar la tarea', error.message, 'error'); }
+            else await refreshView();
+        } catch (error) { toast('No pudimos actualizar la tarea', error.message, 'error'); await refreshView(); }
     }
 
     function toast(title, message = '', type = 'success') {
@@ -2167,10 +3082,10 @@
         tabs?.classList.toggle('is-login-only', !state.registrationEnabled);
         if (lead) {
             lead.textContent = state.databaseAvailable === false
-                ? 'CodePanel no puede conectar con la base de datos. Revisá la conexión en el archivo .env o activá DEMO_FALLBACK=true para ver la demo.'
+                ? 'CodePanel no puede conectar con la base de datos. Revisa la conexión en el archivo .env o activa DEMO_FALLBACK=true para ver la demo.'
                 : state.registrationEnabled
-                    ? 'Ingresá para continuar o creá tu espacio personal en un minuto.'
-                    : 'El alta de cuentas está desactivada en este espacio. Ingresá con una cuenta existente.';
+                    ? 'Entra para continuar o crea tu espacio personal en un minuto.'
+                    : 'El alta de cuentas está desactivada en este espacio. Entra con una cuenta existente.';
         }
         if (!state.registrationEnabled && dom.authForm.dataset.mode === 'register') setAuthMode('login');
     }
@@ -2203,7 +3118,7 @@
         const mode = dom.authForm.dataset.mode || 'login';
         if (mode === 'register' && !state.registrationEnabled) {
             setAuthMode('login');
-            dom.authError.textContent = 'El alta de cuentas está desactivada. Ingresá con una cuenta existente.';
+            dom.authError.textContent = 'El alta de cuentas está desactivada. Entra con una cuenta existente.';
             dom.authError.hidden = false;
             return;
         }
@@ -2212,10 +3127,10 @@
         const button = dom.authForm.querySelector('.auth-submit'); button.disabled = true;
         try {
             const payload = (await api.post(`auth/${mode}`, body)).data || {};
-            state.user = payload.user; state.csrf = payload.csrf_token || ''; state.demoMode = Boolean(payload.demo_mode); applyRegistrationAvailability(payload.registration_enabled !== false);
+            state.user = payload.user; state.csrf = payload.csrf_token || ''; state.demoMode = Boolean(payload.demo_mode); state.features = payload.features || state.features || {}; applyFeatureVisibility(); applyRegistrationAvailability(payload.registration_enabled !== false);
             dom.shell.inert = false; dom.authOverlay.hidden = true; dom.authForm.reset(); updateProfile(); invalidate(...Object.values(ENTITY_ROUTE)); state.settings=null; await getSettings(true).catch(()=>{state.settings={};});
             state.calendarDay=todayISO();
-            toast(mode === 'register' ? 'Tu espacio está listo' : 'Qué bueno verte de nuevo', 'Empecemos por lo importante.');
+            if (mode === 'register') toast('Tu espacio está listo', 'Crea tu primer proyecto para empezar.');
             history.replaceState(null,'','#dashboard'); await navigate('dashboard',{force:true});
         } catch (error) {
             if (mode === 'register' && error.status === 403 && !Object.hasOwn(error.errors, 'csrf')) {
@@ -2229,7 +3144,7 @@
     }
 
     async function logout() {
-        if (!await confirmAction('¿Cerrar sesión?', 'Tus datos quedan guardados y podés volver cuando quieras.', 'Cerrar sesión')) return;
+        if (!await confirmAction('¿Cerrar sesión?', 'Tus datos quedan guardados y puedes volver cuando quieras.', 'Cerrar sesión')) return;
         try { await api.post('auth/logout', {}); } catch (error) { toast('No pudimos cerrar la sesión',error.message,'error'); return; }
         state.user = null; state.cache.clear(); state.dashboard = null; state.settings=null; stopTimerTicker(); showAuth();
         await refreshCsrf(); // la sesión se regeneró: el siguiente acceso necesita un token nuevo
@@ -2239,13 +3154,18 @@
         if (!dom.searchDialog.open) dom.searchDialog.showModal();
         dom.searchInput.value = ''; dom.searchResults.innerHTML = '<div class="search-hint"><span>⌕</span><p>Preparando tu espacio…</p></div>'; dom.searchInput.focus();
         // Sólo se piden las colecciones que no están en caché (las invalidadas al crear o editar).
-        const missing = [...Object.values(ENTITY_ROUTE),'attachments'].filter(route => !state.cache.has(route));
+        const missing = [...Object.values(ENTITY_ROUTE),'attachments'].filter(route => !state.cache.has(route) && (route !== 'snippets' || feature('snippets')));
         if (missing.length) await Promise.allSettled(missing.map(route => getCollection(route)));
         renderSearchResults(dom.searchInput.value);
     }
     function renderSearchResults(query) {
         const clean = query.trim().toLocaleLowerCase('es');
-        if (!clean) { dom.searchResults.innerHTML = '<div class="search-hint"><span>⌕</span><p>Escribí para encontrar cualquier cosa en tu espacio.</p></div>'; return; }
+        const commands = paletteCommands();
+        if (!clean) { dom.searchResults.innerHTML = `${commandResults(commands.slice(0, 6), 'Acciones rápidas')}<p class="search-tip">Escribe para buscar. Filtra con <code>tipo:tarea</code>, <code>proyecto:nombre</code>, <code>estado:curso</code> o <code>#etiqueta</code>; empieza por <code>&gt;</code> para ver solo acciones.</p>`; return; }
+        if (clean.startsWith('>')) { const term = clean.slice(1).trim(); const found = commands.filter(command => command.label.toLocaleLowerCase('es').includes(term)); dom.searchResults.innerHTML = commandResults(found.slice(0, 12), 'Acciones') || '<div class="search-hint"><span>—</span><p>No hay ninguna acción con ese nombre.</p></div>'; moveSearchSelection(1); return; }
+        const parsed = parseSearchQuery(clean);
+        const plain = parsed.text.join(' ');
+        const matchingCommands = plain && !parsed.types.length && !parsed.tags.length && !parsed.project && !parsed.status ? commands.filter(command => command.label.toLocaleLowerCase('es').includes(plain)).slice(0, 3) : [];
         const definitions = [
             ['projects','project','Proyectos','name','description','folder','var(--coral-wash)'], ['ideas','idea','Ideas','title','description','bulb','var(--yellow-wash)'],
             ['tasks','task','Tareas','title','project_name','check','var(--blue-wash)'], ['clients','client','Clientes','name','company','users','var(--sage-wash)'], ['leads','lead','Oportunidades','name','company','target','var(--purple-wash)'],
@@ -2255,15 +3175,18 @@
             ['reminders','reminder','Recordatorios','title','project_name','alert','var(--coral-wash)'],
             ['time_entries','time_entry','Tiempo','description','project_name','clock','var(--blue-wash)'],
             ['weekly_reviews','weekly_review','Revisiones','next_focus','wins','journal','var(--sage-wash)'],
-            ['tags','tag','Etiquetas','name','slug','spark','var(--purple-wash)'],
+            ['tags','tag','Etiquetas','name','slug','tag','var(--purple-wash)'],
+            ...(feature('snippets') ? [['snippets','snippet','Fragmentos','title','language','code','var(--surface-soft)']] : []),
             ['attachments','attachment','Archivos','original_name','mime_type','package','var(--blue-wash)'],
         ];
-        const groups = definitions.map(([route,entity,label,title,subtitle,iconName,wash]) => {
-            const records = (state.cache.get(route)?.data || []).filter(item => [item[title],item[subtitle],item.email,item.notes,item.content,item.version,item.reference,...asArray(item.tags),...asArray(item.tech_stack)].some(value => String(value || '').toLocaleLowerCase('es').includes(clean))).slice(0,5);
+        const groups = definitions.filter(([route]) => !parsed.types.length || parsed.types.includes(route)).map(([route,entity,label,title,subtitle,iconName,wash]) => {
+            const records = (state.cache.get(route)?.data || []).filter(item => searchMatches(item, route, parsed, title, subtitle)).slice(0, parsed.types.length ? 12 : 5);
             if (!records.length) return '';
             return `<p class="search-group-title">${label}</p>${records.map(item => `<button class="search-result" type="button" data-search-open="${entity}" data-id="${Number(item.id)}"><span class="search-result-icon" style="--result-wash:${wash}">${icon(iconName)}</span><span><strong>${escapeHTML(item[title])}</strong><small>${escapeHTML(item[subtitle] || STATUS[item.status] || '')}</small></span></button>`).join('')}`;
         }).join('');
-        dom.searchResults.innerHTML = groups || '<div class="search-hint"><span>—</span><p>No encontramos nada con ese nombre.</p></div>';
+        const html = commandResults(matchingCommands, 'Acciones') + groups;
+        dom.searchResults.innerHTML = html || '<div class="search-hint"><span>—</span><p>No hay resultados. Prueba con otra palabra o quita algún filtro.</p></div>';
+        if (html) moveSearchSelection(1);
     }
 
     const filterSearch = debounce((route,value) => {
@@ -2290,14 +3213,14 @@
         if (button) button.disabled = true;
         try {
             await api.post(`time_entries/${Number(id)}/stop`, {});
-            invalidate('time_entries'); toast('Temporizador detenido','El tiempo quedó guardado en tu registro.');
-            await navigate('time',{force:true});
+            invalidate('time_entries'); toast('Temporizador detenido','El tiempo ha quedado guardado en tu registro.');
+            if (state.route === 'time') await refreshView(); else { history.pushState(null,'','#time'); await navigate('time',{force:true}); }
         } catch (error) { toast('No pudimos detener el reloj',error.message,'error'); if (button) button.disabled=false; }
     }
 
     async function changeReminderStatus(id,status,button) {
         if (!id || button?.disabled) return; if (button) button.disabled=true;
-        try { await api.patch(`reminders/${Number(id)}`,{status}); invalidate('reminders','attention'); toast(status==='done'?'Recordatorio completado':status==='pending'?'Recordatorio reabierto':'Recordatorio descartado'); await navigate(state.route,{force:true}); }
+        try { await api.patch(`reminders/${Number(id)}`,{status}); invalidate('reminders','attention'); toast(status==='done'?'Recordatorio completado':status==='pending'?'Recordatorio reabierto':'Recordatorio descartado'); await refreshView(); }
         catch(error){ toast('No pudimos actualizarlo',error.message,'error'); if(button)button.disabled=false; }
     }
 
@@ -2324,8 +3247,8 @@
     async function saveDashboardSettings(form) {
         const feedback=form.querySelector('[data-settings-feedback]'); const button=form.querySelector('[type="submit"]'); button.disabled=true;
         const selected=[...form.querySelectorAll('[data-widget-key]')].filter(row=>row.querySelector('input').checked).map(row=>row.dataset.widgetKey).filter(key=>Object.hasOwn(WIDGETS,key));
-        if (!selected.length) { feedback.textContent='Dejá al menos un bloque visible.'; button.disabled=false; return; }
-        try { const payload=await api.patch('settings',{dashboard_widgets:selected}); state.settings=payload.data||{...(state.settings||{}),dashboard_widgets:selected}; state.dashboard=null; feedback.textContent='Panorama guardado.'; toast('Panorama actualizado','El inicio respeta tu nuevo orden.'); }
+        if (!selected.length) { feedback.textContent='Deja al menos un bloque visible.'; button.disabled=false; return; }
+        try { const payload=await api.patch('settings',{dashboard_widgets:selected}); state.settings=payload.data||{...(state.settings||{}),dashboard_widgets:selected}; state.dashboard=null; feedback.textContent='Dashboard guardado.'; toast('Dashboard actualizado','Los bloques siguen tu nuevo orden.'); }
         catch(error){ feedback.textContent=error.message; toast('No pudimos guardar',error.message,'error'); }
         finally{button.disabled=false;}
     }
@@ -2335,7 +3258,7 @@
 
     async function uploadAttachment(form) {
         const file=form.querySelector('[name="file"]')?.files?.[0]; const feedback=form.querySelector('[data-upload-feedback]'); const button=form.querySelector('[type="submit"]');
-        if(!file){feedback.textContent='Elegí un archivo antes de continuar.';return;}
+        if(!file){feedback.textContent='Elige un archivo antes de continuar.';return;}
         const [entityType,idValue=''] = String(form.elements.attachment_target.value).split(':');
         const body=new FormData(); body.append('entity_type',entityType||'general'); body.append('entity_id',String(Number(idValue)||0)); body.append('file',file,file.name);
         button.disabled=true; feedback.textContent=`Subiendo ${file.name} (${bytesLabel(file.size)})…`;
@@ -2428,7 +3351,7 @@
         if (!projectId || !files.length) return;
         const invalid = files.find(file => !['image/jpeg','image/png','image/webp','image/gif'].includes(file.type) || file.size > 10 * 1024 * 1024);
         if (invalid) {
-            feedback.textContent = 'Usá JPG, PNG, WEBP o GIF de hasta 10 MiB.';
+            feedback.textContent = 'Usa JPG, PNG, WEBP o GIF de hasta 10 MiB.';
             return;
         }
         input.disabled = true;
@@ -2471,7 +3394,7 @@
         try {
             await api.post(`project-shares/${projectId}/${action}`, {});
             const labels = {
-                enable: ['Enlace público creado', 'Ya podés copiarlo y compartirlo.'],
+                enable: ['Enlace público creado', 'Ya puedes copiarlo y compartirlo.'],
                 disable: ['Enlace público desactivado', 'Los reportes anteriores siguen guardados.'],
                 regenerate: ['Enlace renovado', 'El enlace anterior dejó de funcionar.'],
             };
@@ -2507,7 +3430,7 @@
                 input.focus();
                 input.select();
             }
-            toast('No pudimos copiarlo', 'Seleccioná el enlace y copialo manualmente.', 'error');
+            toast('No pudimos copiarlo', 'Selecciona el enlace y cópialo a mano.', 'error');
         }
     }
 
@@ -2524,7 +3447,7 @@
                 url,
             });
         } catch (error) {
-            if (error?.name !== 'AbortError') toast('No pudimos compartirlo', 'Podés copiar el enlace manualmente.', 'error');
+            if (error?.name !== 'AbortError') toast('No pudimos compartirlo', 'Puedes copiar el enlace a mano.', 'error');
         }
     }
 
@@ -2666,6 +3589,8 @@
         dom.quickCreate.addEventListener('click', event => { event.stopPropagation(); const hidden = dom.createMenu.hidden; closeDropdowns(); dom.createMenu.hidden = !hidden; dom.quickCreate.setAttribute('aria-expanded',String(hidden)); });
         dom.profileButton.addEventListener('click', event => { event.stopPropagation(); const hidden = dom.profileMenu.hidden; closeDropdowns(); dom.profileMenu.hidden = !hidden; dom.profileButton.setAttribute('aria-expanded',String(hidden)); });
         document.querySelector('#theme-button').addEventListener('click', toggleTheme);
+        const markScrolled = () => document.documentElement.classList.toggle('lg-scrolled', window.scrollY > 4);
+        window.addEventListener('scroll', markScrolled, { passive: true }); markScrolled();
         document.querySelector('#search-trigger').addEventListener('click', openSearch);
         dom.entityForm.addEventListener('submit', submitEntityForm);
         dom.dialogDelete.addEventListener('click', () => {
@@ -2677,12 +3602,18 @@
             if (event.target.matches('[data-project-photo-form]')) { event.preventDefault(); uploadProjectPhotos(event.target); }
             if (event.target.matches('#settings-form')) { event.preventDefault(); saveSettingsForm(event.target); }
             if (event.target.matches('#dashboard-settings-form')) { event.preventDefault(); saveDashboardSettings(event.target); }
+            if (event.target.matches('[data-token-form]')) { event.preventDefault(); createApiToken(event.target); }
             if (event.target.matches('#attachment-form')) { event.preventDefault(); uploadAttachment(event.target); }
         });
         dom.searchInput.addEventListener('input', event => renderSearchResults(event.target.value));
-        dom.searchInput.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); dom.searchDialog.close(); } });
+        dom.searchInput.addEventListener('keydown', event => {
+            if (event.key === 'Escape') { event.preventDefault(); dom.searchDialog.close(); return; }
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); moveSearchSelection(event.key === 'ArrowDown' ? 1 : -1); return; }
+            if (event.key === 'Enter') { const selected = dom.searchResults.querySelector('.search-result.is-selected') || dom.searchResults.querySelector('.search-result'); if (selected) { event.preventDefault(); selected.click(); } }
+        });
         dom.searchDialog.addEventListener('click', event => { if (event.target === dom.searchDialog) dom.searchDialog.close(); });
         dom.entityDialog.addEventListener('click', event => { if (event.target === dom.entityDialog) dom.entityDialog.close(); });
+        dom.entityDialog.addEventListener('close', () => { const back = state.formReturn; state.formReturn = null; if (back) returnToPreview(back); });
         dom.projectPreviewDialog?.addEventListener('click', event => { if (event.target === dom.projectPreviewDialog) closeProjectPreview(); });
         dom.projectPreviewDialog?.addEventListener('close', () => {
             state.projectPreview.requestId += 1;
@@ -2710,6 +3641,7 @@
                 document.querySelector(`[data-project-filter="${key}"]`)?.focus();
             }
             if (event.target.matches('[data-filter-status]')) { const route = event.target.dataset.filterStatus; state.filters[route].status = event.target.value; paintCollection(route,state.pageData[route] || state.cache.get(route)?.data || []); }
+            if (event.target.matches('[data-task-status-select]')) updateTaskStatus(event.target.dataset.taskStatusSelect, event.target.value);
             if (event.target.matches('[data-kanban-status-select]')) updateProjectStatus(event.target.dataset.kanbanStatusSelect, event.target.value);
             if (event.target.matches('[data-project-feedback-status]')) updateProjectFeedbackStatus(event.target.dataset.projectFeedbackStatus,event.target.value,event.target);
             if (event.target.matches('[name="project_type"]')) syncProjectTypeFields(event.target.closest('#dialog-fields') || dom.dialogFields);
@@ -2721,8 +3653,12 @@
             if (event.target.matches('#attachment-form [type="file"]')) { const file=event.target.files?.[0]; const label=event.target.closest('form')?.querySelector('[data-file-name]'); if(label)label.textContent=file?`${file.name} · ${bytesLabel(file.size)}`:'Ningún archivo elegido'; }
             if (event.target.matches('[data-file-project]')) { state.filters.files.project=event.target.value; paintCollection('files',state.pageData.files||[]); document.querySelector('[data-file-project]')?.focus(); }
             if (event.target.matches('[data-file-entity]')) { state.filters.files.status=event.target.value; paintCollection('files',state.pageData.files||[]); document.querySelector('[data-file-entity]')?.focus(); }
-            if (event.target.matches('#dashboard-settings-form [type="checkbox"]')) { const row=event.target.closest('[data-widget-key]'); row?.classList.toggle('is-disabled',!event.target.checked); const hint=row?.querySelector('label small'); if(hint)hint.textContent=event.target.checked?'Visible en el panorama':'Oculto'; }
+            if (event.target.matches('#dashboard-settings-form [type="checkbox"]')) { const row=event.target.closest('[data-widget-key]'); row?.classList.toggle('is-disabled',!event.target.checked); const hint=row?.querySelector('label small'); if(hint)hint.textContent=event.target.checked?'Visible en el dashboard':'Oculto'; }
         });
+        document.addEventListener('keydown', handleShortcut);
+        document.addEventListener('keydown', event => { if (event.key === 'Enter' && event.target.matches?.('[data-check-text]')) { event.preventDefault(); addChecklistRow(event.target.closest('.checklist-row')); } });
+        bindTaskBoard();
+        bindCustomSelects();
         document.addEventListener('keydown', event => {
             if (event.key === '/' && !event.ctrlKey && !event.metaKey && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName)) { event.preventDefault(); openSearch(); }
             if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('[data-edit][role="button"]')) { event.preventDefault(); event.target.click(); }
@@ -2737,11 +3673,11 @@
             if (navButton) { const route = navButton.dataset.navButton; history.pushState(null,'',`#${route}`); navigate(route); return; }
             const recordPreviewClose = event.target.closest('[data-record-preview-close]'); if (recordPreviewClose) { closeRecordPreview(); return; }
             const recordPreviewRetry = event.target.closest('[data-record-preview-retry]'); if (recordPreviewRetry) { await openRecordPreview(recordPreviewRetry.dataset.recordPreviewRetry,recordPreviewRetry.dataset.id); return; }
-            const recordPreviewEdit = event.target.closest('[data-record-preview-edit]'); if (recordPreviewEdit) { const entity=recordPreviewEdit.dataset.recordPreviewEdit; const id=recordPreviewEdit.dataset.id; closeRecordPreview(); await openEntityDialog(entity,id); return; }
+            const recordPreviewEdit = event.target.closest('[data-record-preview-edit]'); if (recordPreviewEdit) { const entity=recordPreviewEdit.dataset.recordPreviewEdit; const id=recordPreviewEdit.dataset.id; state.formReturn = rememberPreview(); closeRecordPreview(); await openEntityDialog(entity,id); return; }
             const previewRelated = event.target.closest('[data-preview-related]'); if (previewRelated) { await openRecordPreview(previewRelated.dataset.previewRelated,previewRelated.dataset.id); return; }
             const previewClose = event.target.closest('[data-project-preview-close]'); if (previewClose) { closeProjectPreview(); return; }
             const previewRetry = event.target.closest('[data-project-preview-retry]'); if (previewRetry) { await openProjectPreview(previewRetry.dataset.projectPreviewRetry); return; }
-            const previewEdit = event.target.closest('[data-project-preview-edit]'); if (previewEdit) { const id=previewEdit.dataset.projectPreviewEdit; closeProjectPreview(); await openEntityDialog('project',id); return; }
+            const previewEdit = event.target.closest('[data-project-preview-edit]'); if (previewEdit) { const id=previewEdit.dataset.projectPreviewEdit; state.formReturn = rememberPreview(); closeProjectPreview(); await openEntityDialog('project',id); return; }
             const photoDelete = event.target.closest('[data-project-photo-delete]'); if (photoDelete) { await deleteProjectPhoto(photoDelete.dataset.projectPhotoDelete); return; }
             const shareAction = event.target.closest('[data-project-share-action]'); if (shareAction) { await changeProjectShare(shareAction.dataset.projectShareAction,shareAction); return; }
             const shareCopy = event.target.closest('[data-project-share-copy]'); if (shareCopy) { await copyProjectShareLink(); return; }
@@ -2756,11 +3692,12 @@
                     : create.dataset.prefillProject
                         ? { project_id: Number(create.dataset.prefillProject) }
                         : null;
+                state.formReturn = create.closest('#project-preview-dialog, #record-preview-dialog') ? rememberPreview() : null;
                 if (create.closest('#project-preview-dialog')) closeProjectPreview();
                 if (create.closest('#record-preview-dialog')) closeRecordPreview();
                 await openEntityDialog(create.dataset.create,null,prefill); return;
             }
-            const edit = event.target.closest('[data-edit]'); if (edit) { if (edit.closest('#project-preview-dialog')) closeProjectPreview(); if (edit.closest('#record-preview-dialog')) closeRecordPreview(); await openEntityDialog(edit.dataset.edit,edit.dataset.id); return; }
+            const edit = event.target.closest('[data-edit]'); if (edit) { state.formReturn = edit.closest('#project-preview-dialog, #record-preview-dialog') ? rememberPreview() : null; if (edit.closest('#project-preview-dialog')) closeProjectPreview(); if (edit.closest('#record-preview-dialog')) closeRecordPreview(); await openEntityDialog(edit.dataset.edit,edit.dataset.id); return; }
             const remove = event.target.closest('[data-delete]'); if (remove) { await deleteEntity(remove.dataset.delete,remove.dataset.id); return; }
             const duplicate = event.target.closest('[data-duplicate]'); if (duplicate) { await duplicateEntity(duplicate.dataset.duplicate,duplicate.dataset.id); return; }
             const menu = event.target.closest('[data-card-menu]'); if (menu) { event.stopPropagation(); const popup = menu.closest('[data-record]')?.querySelector('.card-actions-menu'); const hidden = popup?.hidden; closeDropdowns(); if (popup) popup.hidden = !hidden; return; }
@@ -2786,6 +3723,16 @@
             const dialogClose = event.target.closest('[data-dialog-close]'); if (dialogClose) { dom.entityDialog.close(); return; }
             const authMode = event.target.closest('[data-auth-mode]'); if (authMode) { setAuthMode(authMode.dataset.authMode); return; }
             const profileAction = event.target.closest('[data-profile-action]'); if (profileAction) { if (profileAction.dataset.profileAction === 'logout') await logout(); return; }
+            const checkAdd = event.target.closest('[data-check-add]'); if (checkAdd) { addChecklistRow(); return; }
+            const checkRemove = event.target.closest('[data-check-remove]'); if (checkRemove) { const row = checkRemove.closest('.checklist-row'); const next = row?.nextElementSibling || row?.previousElementSibling; row?.remove(); (next?.querySelector('[data-check-text]') || dom.entityForm.querySelector('[data-check-add]'))?.focus(); return; }
+            const subtask = event.target.closest('[data-subtask-toggle]'); if (subtask) { await toggleSubtask(subtask.dataset.subtaskToggle, subtask.dataset.index); return; }
+            const copySnippetButton = event.target.closest('[data-copy-snippet]'); if (copySnippetButton) { event.stopPropagation(); await copySnippet(copySnippetButton.dataset.copySnippet, copySnippetButton); return; }
+            const copyValue = event.target.closest('[data-copy-value]'); if (copyValue) { const ok = await copyText(copyValue.dataset.copyValue); toast(ok ? 'Copiado' : 'No pudimos copiarlo', ok ? 'Guárdalo en un lugar seguro.' : 'Selecciona el texto y cópialo a mano.', ok ? 'success' : 'error'); return; }
+            const tokenRevoke = event.target.closest('[data-token-revoke]'); if (tokenRevoke) { await revokeApiToken(tokenRevoke.dataset.tokenRevoke, tokenRevoke.dataset.tokenName); return; }
+            const command = event.target.closest('[data-command]'); if (command) { const action = paletteCommands().find(item => item.id === command.dataset.command); dom.searchDialog.close(); if (action) await action.run(); return; }
+            const exportButton = event.target.closest('[data-export]'); if (exportButton) { await exportData(exportButton.dataset.export, exportButton); return; }
+            const taskTimer = event.target.closest('[data-task-timer]'); if (taskTimer) { event.stopPropagation(); await startTimerForTask(taskTimer.dataset.taskTimer); return; }
+            const taskView = event.target.closest('[data-task-view]'); if (taskView) { state.filters.tasks.view = taskView.dataset.taskView; try { localStorage.setItem('cp-task-view', taskView.dataset.taskView); } catch {} paintCollection('tasks', state.cache.get('tasks')?.data || []); return; }
             const searchOpen = event.target.closest('[data-search-open]'); if (searchOpen) { dom.searchDialog.close(); const entity=entityFromRoute(searchOpen.dataset.searchOpen); const route=ENTITY_PAGE[entity]; if(!route)return; history.pushState(null,'',`#${route}`); await navigate(route); if(entity==='project')await openProjectPreview(searchOpen.dataset.id);else await openRecordPreview(entity,searchOpen.dataset.id); return; }
             const recordPreview = event.target.closest('[data-record-preview]');
             if (recordPreview) {

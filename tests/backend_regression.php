@@ -9,12 +9,15 @@ if (PHP_SAPI !== 'cli') {
 }
 
 use CodePanel\ApiException;
+use CodePanel\ApiTokens;
 use CodePanel\Auth;
 use CodePanel\DatabaseStore;
 use CodePanel\DemoStore;
 use CodePanel\EntityCatalog;
 use CodePanel\Env;
 use CodePanel\PublicFeedbackService;
+use CodePanel\Schema;
+use CodePanel\SecretGuard;
 use CodePanel\SettingsCatalog;
 
 require dirname(__DIR__) . '/app/bootstrap.php';
@@ -156,13 +159,15 @@ try {
     runSqlFile($root . '/database/migrations/2026-08-04_add_project_public_feedback.sql', $host, $port, $user, $password, $database);
     runSqlFile($root . '/database/migrations/2026-10-23_add_login_attempts.sql', $host, $port, $user, $password, $database);
     runSqlFile($root . '/database/migrations/2026-10-23_add_login_attempts.sql', $host, $port, $user, $password, $database);
+    runSqlFile($root . '/database/migrations/2026-11-04_add_developer_tools.sql', $host, $port, $user, $password, $database);
+    runSqlFile($root . '/database/migrations/2026-11-04_add_developer_tools.sql', $host, $port, $user, $password, $database);
 
     $newConnection = static fn (): PDO => connectServer($host, $port, $user, $password, $database);
     $pdo = $newConnection();
     $tables = (int) $pdo->query(
         'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()',
     )->fetchColumn();
-    check($tables === 22, 'El esquema final debe contener 22 tablas.', $tables);
+    check($tables === 24, 'El esquema final debe contener 24 tablas.', $tables);
     check((int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn() === 0,
         'El esquema no debe crear usuarios: el de ejemplo está en database/seed-demo.sql.');
     $authWithEmptyBase = new Auth($pdo, false);
@@ -566,7 +571,110 @@ try {
         'database' => $databaseWeekly, 'demo' => $demoWeekly,
     ]);
 
-    echo "OK backend: esquema/catálogo/migraciones idempotentes, feedback público, registro configurable, transacciones y concurrencia de cobros, attention y weekly_summary.\n";
+    // ---- Versión 1.9: subtareas, fragmentos, referencias de credenciales y tokens de API ----
+    Schema::reset();
+    $toolsStore = new DatabaseStore($pdo);
+    $projectForTools = $toolsStore->create('projects', 1, EntityCatalog::validate('projects', ['name' => 'Herramientas'], true)['data']);
+    $taskInput = EntityCatalog::validate('tasks', [
+        'title' => 'Con subtareas', 'project_id' => $projectForTools['id'], 'estimated_minutes' => 90,
+        'checklist' => [['text' => 'Uno', 'done' => true], 'Dos', ['text' => '   ']],
+    ], true);
+    check($taskInput['errors'] === [], 'Una tarea con subtareas válidas no debe dar errores.', $taskInput['errors']);
+    $taskWithChecklist = $toolsStore->create('tasks', 1, $taskInput['data']);
+    check($taskWithChecklist['estimated_minutes'] === 90, 'La estimación debe guardarse en minutos.', $taskWithChecklist);
+    check($taskWithChecklist['checklist'] === [['text' => 'Uno', 'done' => true], ['text' => 'Dos', 'done' => false]],
+        'Las subtareas deben guardarse normalizadas y sin elementos vacíos.', $taskWithChecklist['checklist']);
+    check(isset(EntityCatalog::validate('tasks', ['checklist' => array_fill(0, 51, 'x')], false)['errors']['checklist']),
+        'Más de 50 subtareas debe ser un error.');
+
+    $okRef = EntityCatalog::validate('resources', ['name' => 'Servidor', 'credential_ref' => '1Password → Atlas → Producción'], true);
+    check($okRef['errors'] === [], 'Una referencia normal a una credencial debe aceptarse.', $okRef['errors']);
+    foreach (['ghp_' . str_repeat('a1B2', 9), 'password=Sup3rS3creta', 'mysql://root:secreta@db/app', 'k8Hq2LmZ9xVb7Nc4Rt6Yp1Ws3Dg5Jf0'] as $secret) {
+        $badRef = EntityCatalog::validate('resources', ['name' => 'Servidor', 'credential_ref' => $secret], true);
+        check(isset($badRef['errors']['credential_ref']), 'Una credencial real no debe guardarse como referencia.', $secret);
+    }
+    check(!SecretGuard::containsSecret("SELECT * FROM users WHERE id = 1;\nphp artisan migrate --force"), 'El código normal no es un secreto.');
+    check(isset(EntityCatalog::validate('snippets', ['title' => 'Clave', 'content' => '-----BEGIN RSA ' . 'PRIVATE KEY-----' . "\nabc"], true)['errors']['content']),
+        'Un fragmento con una clave privada debe rechazarse.');
+    $snippet = $toolsStore->create('snippets', 1, EntityCatalog::validate('snippets', [
+        'title' => 'Desplegar', 'language' => 'bash', 'content' => 'git pull && composer install', 'project_id' => $projectForTools['id'],
+    ], true)['data']);
+    check(($snippet['project_name'] ?? null) === 'Herramientas', 'El fragmento debe traer el nombre del proyecto.', $snippet);
+    $overview = $toolsStore->projectOverview((int) $projectForTools['id'], 1);
+    check(count($overview['snippets'] ?? []) === 1, 'La vista del proyecto debe incluir sus fragmentos.', $overview['snippets'] ?? null);
+
+    $tokens = new ApiTokens($pdo);
+    $createdToken = $tokens->create(1, ['name' => 'Terminal', 'scope' => 'read', 'expires_in_days' => 30]);
+    check(preg_match('/^cp_[0-9a-f]{48}$/', $createdToken['token']) === 1, 'El token debe tener el formato cp_ + 48 hex.', $createdToken['token']);
+    $storedHash = (string) $pdo->query('SELECT token_hash FROM api_tokens LIMIT 1')->fetchColumn();
+    check($storedHash === hash('sha256', $createdToken['token']) && !str_contains(json_encode($tokens->list(1)), $createdToken['token']),
+        'Solo debe guardarse el hash del token y nunca devolverse el token en el listado.');
+    check(($tokens->authenticate($createdToken['token'])['scope'] ?? null) === 'read', 'Un token válido debe autenticar con su alcance.');
+    check($tokens->authenticate('cp_' . str_repeat('0', 48)) === null, 'Un token desconocido no debe autenticar.');
+    $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $createdToken['token'];
+    $tokenAuth = new Auth($pdo, false);
+    check(($tokenAuth->user()['id'] ?? null) === 1 && $tokenAuth->viaToken(), 'El encabezado Bearer debe autenticar al usuario del token.');
+    try {
+        $tokenAuth->assertCsrf();
+        check(false, 'Un token de solo lectura no debe poder escribir.');
+    } catch (ApiException $exception) {
+        check($exception->status === 403, 'El token de lectura debía devolver 403 al escribir.', $exception->status);
+    }
+    check($tokens->revoke(1, (int) $createdToken['record']['id']), 'El token debe poder revocarse.');
+    try {
+        (new Auth($pdo, false))->user();
+        check(false, 'Un token revocado no debe autenticar.');
+    } catch (ApiException $exception) {
+        check($exception->status === 401, 'Un token revocado debía devolver 401.', $exception->status);
+    }
+    $writeToken = $tokens->create(1, ['name' => 'Script', 'scope' => 'write']);
+    $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $writeToken['token'];
+    $writeAuth = new Auth($pdo, false);
+    $writeAuth->user();
+    $writeAuth->assertCsrf();
+    unset($_SERVER['HTTP_AUTHORIZATION']);
+
+    // Base sin migrar: el código nuevo no debe romper nada mientras la migración no se aplique.
+    $legacy = $database . '_legacy';
+    $server = connectServer($host, $port, $user, $password);
+    $server->exec("CREATE DATABASE `{$legacy}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    $server = null;
+    try {
+        runSqlFile($root . '/database/schema.sql', $host, $port, $user, $password, $legacy);
+        $legacyPdo = connectServer($host, $port, $user, $password, $legacy);
+        $legacyPdo->exec('DROP TABLE api_tokens');
+        $legacyPdo->exec('DROP TABLE snippets');
+        $legacyPdo->exec('ALTER TABLE tasks DROP COLUMN checklist, DROP COLUMN estimated_minutes');
+        $legacyPdo->exec('ALTER TABLE resources DROP COLUMN credential_ref');
+        insertRow($legacyPdo, 'users', ['id' => 1, 'name' => 'QA', 'email' => 'qa@example.test', 'password_hash' => password_hash('Qa123456', PASSWORD_DEFAULT)]);
+        Schema::reset();
+        $legacyStore = new DatabaseStore($legacyPdo);
+        $legacyTask = $legacyStore->create('tasks', 1, EntityCatalog::validate('tasks', ['title' => 'Sin migrar', 'checklist' => ['Uno'], 'estimated_minutes' => 30], true)['data']);
+        check($legacyTask['title'] === 'Sin migrar' && $legacyTask['checklist'] === [], 'Sin migración, la tarea debe crearse igual (sin subtareas).', $legacyTask);
+        $legacyStore->update('tasks', (int) $legacyTask['id'], 1, ['status' => 'done']);
+        try {
+            $legacyStore->update('tasks', (int) $legacyTask['id'], 1, ['checklist' => [['text' => 'Uno', 'done' => true]]]);
+            check(false, 'Editar solo subtareas sin migración debía avisar.');
+        } catch (ApiException $exception) {
+            check($exception->status === 409, 'Editar solo subtareas sin migración debía devolver 409.', $exception->status);
+        }
+        $legacyResource = $legacyStore->create('resources', 1, EntityCatalog::validate('resources', ['name' => 'Dominio', 'credential_ref' => 'Bitwarden → Dominios'], true)['data']);
+        check($legacyResource['name'] === 'Dominio', 'Sin migración, el recurso debe crearse igual.');
+        check(!Schema::hasTable($legacyPdo, 'snippets') && !(new ApiTokens($legacyPdo))->available(), 'Sin migración, fragmentos y tokens deben figurar como no disponibles.');
+        check(($legacyStore->projectOverview((int) $legacyStore->create('projects', 1, ['name' => 'P', 'project_type' => 'personal', 'status' => 'planned', 'priority' => 'medium', 'progress' => 0, 'tech_stack' => [], 'tags' => [], 'color' => '#7867E6', 'pinned' => false])['id'], 1)['snippets'] ?? null) === [],
+            'Sin migración, la vista del proyecto debe devolver fragmentos vacíos.');
+        runSqlFile($root . '/database/migrations/2026-11-04_add_developer_tools.sql', $host, $port, $user, $password, $legacy);
+        Schema::reset();
+        check(Schema::hasColumn($legacyPdo, 'tasks', 'checklist') && Schema::hasTable($legacyPdo, 'api_tokens'), 'La migración debe activar las funciones en una base existente.');
+        $migratedTask = (new DatabaseStore($legacyPdo))->update('tasks', (int) $legacyTask['id'], 1, EntityCatalog::validate('tasks', ['checklist' => '[{"text":"Uno","done":true}]'], false)['data']);
+        check(($migratedTask['checklist'][0]['done'] ?? null) === true, 'Tras migrar, las subtareas deben guardarse.', $migratedTask);
+    } finally {
+        $server = connectServer($host, $port, $user, $password);
+        $server->exec("DROP DATABASE IF EXISTS `{$legacy}`");
+        Schema::reset();
+    }
+
+    echo "OK backend: esquema/catálogo/migraciones idempotentes, feedback público, registro configurable, transacciones y concurrencia de cobros, attention, weekly_summary, subtareas, fragmentos, referencias de credenciales, tokens de API y base sin migrar.\n";
 } finally {
     $server = connectServer($host, $port, $user, $password);
     $server->exec("DROP DATABASE IF EXISTS `{$database}`");

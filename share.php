@@ -51,7 +51,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
             <div class="section-heading">
                 <div>
                     <div class="eyebrow"><span></span> Feedback</div>
-                    <h2>Contanos qué encontraste</h2>
+                    <h2>Cuéntanos qué has encontrado</h2>
                 </div>
                 <p>Tu reporte llegará directamente a la persona responsable del proyecto.</p>
             </div>
@@ -66,7 +66,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
                 <div class="field-grid">
                     <label class="field">
                         <span>Tu nombre</span>
-                        <input name="author_name" type="text" autocomplete="name" minlength="2" maxlength="100" required placeholder="¿Cómo te llamás?">
+                        <input name="author_name" type="text" autocomplete="name" minlength="2" maxlength="100" required placeholder="¿Cómo te llamas?">
                         <small data-error="author_name"></small>
                     </label>
                     <label class="field">
@@ -78,7 +78,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
 
                 <label class="field field-message">
                     <span>¿Qué pasó?</span>
-                    <textarea name="message" minlength="10" maxlength="5000" required placeholder="Contá qué estabas haciendo, qué esperabas que ocurriera y qué viste…"></textarea>
+                    <textarea name="message" minlength="10" maxlength="5000" required placeholder="Cuenta qué estabas haciendo, qué esperabas que ocurriera y qué has visto…"></textarea>
                     <span class="field-meta"><small data-error="message"></small><output id="message-count">0 / 5000</output></span>
                 </label>
 

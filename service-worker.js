@@ -5,7 +5,7 @@
  * sesiones, API y adjuntos quedan deliberadamente fuera de Cache Storage.
  */
 const CACHE_PREFIX = 'codepanel-shell-';
-const CACHE_VERSION = '2026-10-23.2';
+const CACHE_VERSION = '2026-11-04.3';
 const SHELL_CACHE = `${CACHE_PREFIX}${CACHE_VERSION}`;
 const APP_ROOT = new URL('./', self.registration.scope);
 const APP_ROOT_PATH = APP_ROOT.pathname.endsWith('/') ? APP_ROOT.pathname : `${APP_ROOT.pathname}/`;

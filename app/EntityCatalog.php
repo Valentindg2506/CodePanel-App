@@ -104,8 +104,8 @@ final class EntityCatalog
                 'singular' => 'tarea',
                 'order' => "FIELD(t.status, 'in_progress', 'todo', 'done'), t.due_date IS NULL, t.due_date ASC, t.updated_at DESC",
                 'search' => ['title', 'description', 'assignee'],
-                'json' => ['tags'],
-                'ints' => ['id', 'project_id'],
+                'json' => ['tags', 'checklist'],
+                'ints' => ['id', 'project_id', 'estimated_minutes'],
                 'fields' => [
                     'title' => ['type' => 'string', 'required' => true, 'max' => 180],
                     'description' => ['type' => 'string', 'nullable' => true, 'max' => 5000],
@@ -116,6 +116,9 @@ final class EntityCatalog
                     'due_date' => ['type' => 'date', 'nullable' => true],
                     'completed_at' => ['type' => 'datetime', 'nullable' => true],
                     'tags' => ['type' => 'array', 'default' => []],
+                    // Migración 2026-11-04: subtareas y horas estimadas.
+                    'estimated_minutes' => ['type' => 'int', 'min' => 1, 'max_value' => 100000, 'nullable' => true],
+                    'checklist' => ['type' => 'checklist', 'default' => []],
                 ],
             ],
             'devlogs' => [
@@ -213,6 +216,24 @@ final class EntityCatalog
                     'currency' => ['type' => 'enum', 'values' => ['ARS', 'USD', 'EUR'], 'default' => 'ARS'],
                     'billing_cycle' => ['type' => 'enum', 'values' => ['none', 'monthly', 'yearly', 'one_time'], 'default' => 'none'],
                     'notes' => ['type' => 'string', 'nullable' => true, 'max' => 5000],
+                    'tags' => ['type' => 'array', 'default' => []],
+                    // Migración 2026-11-04: dónde está la credencial, nunca la credencial.
+                    'credential_ref' => ['type' => 'string', 'nullable' => true, 'max' => 200],
+                ],
+            ],
+            // Migración 2026-11-04: fragmentos de código y comandos reutilizables.
+            'snippets' => [
+                'table' => 'snippets',
+                'singular' => 'fragmento',
+                'order' => 't.updated_at DESC',
+                'search' => ['title', 'content', 'language'],
+                'json' => ['tags'],
+                'ints' => ['id', 'project_id'],
+                'fields' => [
+                    'project_id' => ['type' => 'int', 'min' => 1, 'nullable' => true, 'foreign' => 'projects'],
+                    'title' => ['type' => 'string', 'required' => true, 'max' => 160],
+                    'language' => ['type' => 'string', 'nullable' => true, 'max' => 40],
+                    'content' => ['type' => 'string', 'required' => true, 'max' => 20000],
                     'tags' => ['type' => 'array', 'default' => []],
                 ],
             ],
@@ -368,6 +389,14 @@ final class EntityCatalog
             $data['client_id'] = null;
             $data['due_date'] = null;
         }
+        if ($entity === 'resources' && isset($data['credential_ref']) && SecretGuard::looksLikeCredential((string) $data['credential_ref'])) {
+            $errors['credential_ref'] = 'Escribe solo dónde está la credencial (por ejemplo, «1Password → Atlas → Producción»), nunca la clave.';
+            unset($data['credential_ref']);
+        }
+        if ($entity === 'snippets' && isset($data['content']) && SecretGuard::containsSecret((string) $data['content'])) {
+            $errors['content'] = 'Parece que el fragmento incluye una clave, un token o una contraseña. Quítala y guarda solo dónde está.';
+            unset($data['content']);
+        }
         if ($entity === 'resources' && isset($data['url']) && !self::resourceUrlIsSafe((string) $data['url'])) {
             $errors['url'] = 'La URL no puede incluir credenciales ni parámetros sensibles.';
             unset($data['url']);
@@ -421,6 +450,7 @@ final class EntityCatalog
                 ? ['value' => strtoupper((string) $value)]
                 : ['error' => 'Usa un color hexadecimal como #7867E6.'],
             'array' => self::stringArray($value),
+            'checklist' => self::checklist($value),
             default => ['error' => 'Tipo de campo no soportado.'],
         };
     }
@@ -517,6 +547,43 @@ final class EntityCatalog
     }
 
     /** @return array{value?: array<int, string>, error?: string} */
+    /** Subtareas: hasta 50 elementos con texto (máx. 200) y estado hecho / pendiente. */
+    private static function checklist(mixed $value): array
+    {
+        if (is_string($value)) {
+            $decoded = json_decode(trim($value), true);
+            if (!is_array($decoded)) {
+                return ['error' => 'Las subtareas deben enviarse como una lista.'];
+            }
+            $value = $decoded;
+        }
+        if (!is_array($value)) {
+            return ['error' => 'Las subtareas deben enviarse como una lista.'];
+        }
+        $items = [];
+        foreach ($value as $item) {
+            if (is_string($item)) {
+                $item = ['text' => $item, 'done' => false];
+            }
+            if (!is_array($item) || !is_scalar($item['text'] ?? null)) {
+                return ['error' => 'Cada subtarea necesita un texto.'];
+            }
+            $text = trim((string) $item['text']);
+            if ($text === '') {
+                continue;
+            }
+            if (mb_strlen($text) > 200) {
+                return ['error' => 'Cada subtarea puede tener hasta 200 caracteres.'];
+            }
+            $done = $item['done'] ?? false;
+            $items[] = ['text' => $text, 'done' => $done === true || $done === 1 || $done === '1' || $done === 'true'];
+        }
+        if (count($items) > 50) {
+            return ['error' => 'Una tarea puede tener hasta 50 subtareas.'];
+        }
+        return ['value' => $items];
+    }
+
     private static function stringArray(mixed $value): array
     {
         if (is_string($value)) {
@@ -568,6 +635,15 @@ final class EntityCatalog
                 $decoded = json_decode($row[$field], true);
                 $row[$field] = is_array($decoded) ? array_values($decoded) : [];
             }
+        }
+        if ($entity === 'tasks') {
+            $row['checklist'] = array_values(array_map(
+                static fn (mixed $item): array => [
+                    'text' => is_array($item) ? (string) ($item['text'] ?? '') : (string) $item,
+                    'done' => is_array($item) && ($item['done'] ?? false) === true,
+                ],
+                is_array($row['checklist'] ?? null) ? $row['checklist'] : [],
+            ));
         }
         foreach ($spec['ints'] as $field) {
             if (array_key_exists($field, $row)) {
