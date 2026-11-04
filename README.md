@@ -122,27 +122,6 @@ La API sigue un mismo contrato REST para 15 recursos, con rutas específicas par
 - Tokens de API guardados como hash SHA-256, con alcance de lectura o escritura y caducidad; no sirven para cambiar la cuenta ni gestionar otros tokens.
 - Detector de secretos en fragmentos y accesos: rechaza claves privadas, tokens conocidos y contraseñas en texto.
 
-## Probarlo en local
-
-Requisitos: PHP 8.1+ con `pdo_mysql`, `mbstring` y `fileinfo`, y MySQL 8 o MariaDB 10.5+.
-
-```bash
-cp .env.example .env              # completa la conexión a MySQL
-mysql -u root -e "CREATE DATABASE codepanel CHARACTER SET utf8mb4"
-mysql -u root codepanel < database/schema.sql
-php -S localhost:8080             # abre http://localhost:8080 y crea tu cuenta
-```
-
-Para actualizar una instalación existente, aplica en orden las migraciones de `database/migrations/` que aún no tenga (la versión 1.9 añade `2026-11-04_add_developer_tools.sql`). Para verla sin base de datos, con datos de ejemplo, define `DEMO_FALLBACK=true` en `.env`.
-
-```bash
-bash scripts/verify.sh            # comprueba configuración, extensiones y sintaxis
-php tests/backend_regression.php  # regresión del backend (crea y borra una base temporal)
-php tests/pwa_contract.php        # manifiesto, iconos y caché offline de la PWA
-```
-
-Las pruebas del backend usan una base de datos temporal, así que el usuario de MySQL necesita permiso para crearla.
-
 ## Autor
 
 Diseñado y desarrollado por **Valentín De Gennaro**: modelo de datos, API, interfaz, sistema de adjuntos, cálculo de rentabilidad, portal para clientes, PWA y scripts de verificación.
